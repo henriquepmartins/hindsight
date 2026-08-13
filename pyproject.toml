@@ -5,8 +5,14 @@ description = "Point-in-time signal detection over the FDA Adverse Event Reporti
 readme = "README.md"
 requires-python = ">=3.12,<3.13"
 license = { text = "MIT" }
-# Dependencies are pinned in T2 — deliberately empty here so T1 is structure only.
-dependencies = []
+# polars is deliberately absent (design.md): pyarrow writes the Parquet and
+# DuckDB queries it. Add it when a transform actually wants a dataframe.
+dependencies = [
+    "duckdb>=1.5.5",
+    "httpx>=0.28.1",
+    "ijson>=3.5.1",
+    "pyarrow>=25.0.1",
+]
 
 [build-system]
 requires = ["hatchling"]
@@ -14,3 +20,8 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/hindsight"]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
+]
