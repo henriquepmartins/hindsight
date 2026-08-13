@@ -1,7 +1,7 @@
 # State
 
 **Last Updated:** 2026-08-13
-**Current Work:** M0 — Walking Skeleton. T1–T11 done: repo initialized, dependencies pinned, Makefile skeleton, partition resolver, pinned resumable downloader, streaming report iterator, openfda dimension writer, record splitter, schema inference + Parquet sink, round-trip reconstructor, round-trip test. **AD-013 is decided** — five tables, and a null `seq` on `report_duplicate` means the source carried a bare object. **The round trip closes and is now defended: 12,000 / 12,000 byte-identical, plus 13 tests over a committed 100-report fixture that CI can run without the partition.** Phase 3, the core of M0, is finished. Next action: **T12** (MedDRA exclusion list) — pure data curation, unblocked since T2, and the only genuinely parallel task in M0.
+**Current Work:** M0 — Walking Skeleton. T1–T12 done: repo initialized, dependencies pinned, Makefile skeleton, partition resolver, pinned resumable downloader, streaming report iterator, openfda dimension writer, record splitter, schema inference + Parquet sink, round-trip reconstructor, round-trip test, MedDRA exclusion list. **AD-013 is decided** — five tables, and a null `seq` on `report_duplicate` means the source carried a bare object. **The round trip closes and is now defended: 12,000 / 12,000 byte-identical, plus 13 tests over a committed 100-report fixture that CI can run without the partition.** Phase 3, the core of M0, is finished, and T12 curated 187 exclusion terms that clear the top of the ranking — what surfaces underneath is infliximab → sepsis, a real anti-TNF warning. **T12 also found the trap T13 walks into: one report carries 2,321 drug rows, and the naive join inflates the pair counts 2.2× (L-009).** Next action: **T13** (PRR query) — and its 2×2 counts distinct reports, not joined rows.
 
 ---
 
@@ -244,6 +244,20 @@ The measurement does not transfer. Whether an export carries explicit nulls is a
 
 **Prevents:** a round-trip test that is green because it compares two documents after deleting the difference. Also the general shape of it, which is worth more than the instance: any normalization applied to *both* sides of an equality test can only ever make it pass, so the justification has to be measured on the data and not argued from the format.
 
+### L-009: One report can carry 2,321 drug rows, and a naive join turns that into the ranking
+
+**Context:** T12 checked the exclusion list the only way that means anything — ranking the top drug–event pairs with the list applied and without it. The list worked: `Off label use` and `Product use in unapproved indication` left the top, and infliximab → sepsis and streptococcal infection surfaced underneath, which is a real anti-TNF boxed warning and a good omen for M4.
+
+**Problem:** the pair counts were bigger than the terms that fed them. `INFLIXIMAB × Sepsis` counted 862, and `Sepsis` appears on 74 reports in the entire partition. A count cannot exceed its own inputs, so either the ranking was wrong or the normalization was.
+
+**Solution:** measured, then checked the measurement against the source rather than against the Parquet. Report `24942430` lists **2,321 drug entries against 8 reactions** — 862 of them `INFLIXIMAB`, and only 212 distinct drug objects among all 2,321. Confirmed by re-reading the report out of the source zip: it is real data, an aggregate literature report, not a bug in T8's splitter. The byte-identical round trip already implied that — a splitter that invented rows would have reconstructed 862 entries where the source had one — but the claim was worth spending one query on rather than inferring.
+
+Over the partition the naive join produces **882,585 rows against 405,230 distinct `(report, drug, event)` triples — 2.2× inflation**, and **2.1% of every joined row in the partition comes from that single report.** 40 reports of 12,000 carry more than 100 drug rows.
+
+**What this costs T13.** design.md sketches the analysis as `FROM report_drug d JOIN report_reaction r USING (safetyreportid)` and labels itself "shape only; you write the real one in T13" — this is the part that has to change. A 2×2 built by counting joined rows ranks products by how many times a reporter repeated the product name inside one report, not by how often a drug and an event occur together. **The cells count distinct `safetyreportid`.** The inflation does not cancel out of the ratio either: it is concentrated on whichever drugs happen to appear in aggregate reports, so it moves the numerator and the denominator by different factors.
+
+**Prevents:** a headline PRR table that is a ranking of verbose reporters. At 1,767 partitions the 0.33% of reports carrying more than 100 drug rows projects to roughly **69,000 such reports** across 20.7M — far too many to treat as outliers to notice later, and they are exactly the reports M2's deduplication will also have to survive.
+
 ### L-002: Always measure before believing a size number
 
 **Context:** Two sizing assumptions were wrong on inspection — the FAERS ASCII files (assumed fast, actually stalled) and the JSON corpus (assumed dense, actually 93% redundant).
@@ -309,6 +323,13 @@ The measurement does not transfer. Whether an export carries explicit nulls is a
 | Fast suite | **143 tests, 0.69 s**, no network, no partition on disk | T11, `uv run pytest -q` |
 | Slow suite, whole partition | 12,000/12,000 byte-identical, **23.6 s**, peak RSS **373 MB** of 500 | T11, `uv run pytest -m slow` |
 | Cost of re-asserting the null precondition | 23.6 s vs T10's 7.4 s for the same reconstruction | T11, the difference is `explicit_nulls` per report (L-008) |
+| Distinct MedDRA terms in the partition | **4,281** across 44,916 reaction rows | T12, `report_reaction.parquet` |
+| Exclusion list size and bite | **187 terms, 6,900 of 44,916 reaction rows — 15.4%** | T12, list joined against the partition |
+| MedDRA versions inside one partition | **two** — 27.1 on 44,792 rows, 28.0 on 124 | T12, `reactionmeddraversionpt` |
+| Top term once the list is applied | `Fatigue` (581), then Diarrhoea, Nausea, Headache — `Death` 8th | T12, before/after ranking |
+| Max drug rows in a single report | **2,321** (report `24942430`), 862 of them the same `medicinalproduct`, 212 distinct drug objects | T12, verified against the source zip (L-009) |
+| Reports with more than 100 drug rows | **40 of 12,000** — 0.33%, ~69,000 projected over the corpus | T12, same run |
+| Naive drug × reaction join | **882,585 rows vs 405,230 distinct triples — 2.2×**, 2.1% of it one report | T12, same run (L-009) |
 
 > ⚠️ Caveat, hardened by **L-006**: per-partition figures come from one partition, `2025q1/drug-event-0001-of-0034` — **which no longer exists.** The 2026-08-10 export chunks 2025q1 into 28 files, not 34. These figures are prior expectations, not reproducible measurements. **T6 through T9 have since re-measured every one of them** against `2025q1/0001-of-0028`: reports 12,000 (matches), drug rows 71,990 and reaction rows 44,916 (both lower), compression 175× rather than 338×. Where the two disagree, the T6–T9 row is the measurement and the spike row is history. The corpus-level rows above (1,767 partitions, 111 GiB, 20,692,690 records) were re-verified against the manifest on 2026-08-13 and hold exactly.
 
@@ -337,5 +358,9 @@ The measurement does not transfer. Whether an export carries explicit nulls is a
 - [x] ~~**`Tables.load` holds a whole partition in Python dicts** — 266 MB for 4.62 MB of Parquet (T10)~~ — T11 kept it. Measured 373 MB peak against the 500 MB ceiling; streaming in `safetyreportid` order would trade that headroom for a sort nothing needs. CI never loads a partition. **Revisit at M1** if a denser partition gets close
 - [x] ~~T11 must assert "zero explicit nulls" per partition rather than inherit T10's measurement (L-008)~~ — done, and it is what makes the round-trip comparison one-sided
 - [ ] Add `ijson` to PROJECT.md's key dependencies — required by the streaming design, currently missing
+- [ ] **Review the exclusion list at the start of M1**, as its own header promises. It was curated against one partition and is a floor, not an enumeration
+- [ ] Procedure and concomitant-therapy terms (`Chemotherapy`, `Radiotherapy`, `Oxygen therapy`) sit in the reaction field and are not bodily responses either. Enumerating them by hand loses; they need the MedDRA hierarchy, which openFDA does not ship — the export carries the preferred term only. Deferred, and stated in the list's header rather than left out quietly
+- [ ] The exclusion list's `#` header requires `comment='#'` on read. Without it DuckDB returns **zero rows silently** and nothing is excluded — T13 owns making that failure loud
+- [ ] Spec traceability table still reads `Pending` for M0-01 … M0-12, all of which are done. Refresh it in one pass rather than a row per task
 
 ---
