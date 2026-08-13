@@ -400,7 +400,7 @@ Second run, against the committed schema rather than re-inferring it: **5.2 s**,
 
 ### T10: Round-trip reconstructor ⭐
 
-**What:** `reconstruct(tables, report_id) -> dict` — rebuild the original nested JSON from the four tables: strip `pt_` back into `patient`, re-nest drugs and reactions in `seq` order, rejoin `openfda` from the dimension.
+**What:** `reconstruct(tables, report_id) -> dict` — rebuild the original nested JSON from the five tables: strip `pt_` back into `patient`, re-nest drugs and reactions in `seq` order, rejoin `openfda` from the dimension, and put `reportduplicate` back in the shape its null `seq` records (AD-013).
 **Where:** `src/hindsight/roundtrip.py`
 **Depends on:** T9 · **Requirement:** M0-09
 
@@ -409,12 +409,61 @@ Second run, against the committed schema rather than re-inferring it: **5.2 s**,
 **Watch for:** the spike's `sn()` helper strips `None` values before comparing, because absent-vs-null is a distinction JSON round-tripping introduces. Understand *why* that's legitimate normalization and not cheating — then keep it, and document it in a comment.
 
 **Done when:**
-- [ ] `reconstruct` returns a dict equal to the source for a hand-picked report
-- [ ] Drug and reaction order matches the source exactly
-- [ ] A report with `openfda: {}` reconstructs to `{}`, not a missing key
-- [ ] Works from Parquet, not from the in-memory rows
+- [x] `reconstruct` returns a dict equal to the source for a hand-picked report
+- [x] Drug and reaction order matches the source exactly
+- [x] A report with `openfda: {}` reconstructs to `{}`, not a missing key
+- [x] A `report_duplicate` row with `seq IS NULL` reconstructs to an object; rows with `seq` 0..N reconstruct to an array in that order (AD-013, added when the decision was taken)
+- [x] Works from Parquet, not from the in-memory rows
 
-**Verify:** one report by hand, compared with `json.dumps(..., sort_keys=True)`. T11 makes it 12,000.
+**Deviations from the original criteria, and why:**
+
+- **`tables` needed a type, so `Tables` is one.** design.md gives the signature `reconstruct(tables, report_id)` without saying what `tables` is. It is `Tables`, with two constructors: `load(directory)` reads the five Parquet files, `from_rows(by_table)` indexes rows already in memory. Both exist because T11 needs both — the fixture test has no Parquet to read and the slow test must read the artifact rather than the rows — and putting the indexing rules in one place is what stops the two paths from testing subtly different things.
+- **Child rows are grouped by `safetyreportid` once, at load.** Scanning per report is 12,000 passes over 71,990 drug rows. Not a micro-optimization: it is the difference between 7.4 s and something quadratic in a number M1 multiplies by 1,767.
+- **The null-stripping normalization is measured rather than justified.** The task asks to keep the spike's `sn()` and document why it is legitimate. Documenting it is not enough — it is legitimate only if the source never carries an explicit JSON null, and if it ever did, the strip would erase a real value and turn a genuine mismatch into a pass. That is the failure where the test built to catch data loss is the thing hiding it. **Measured: 0 explicit nulls across all 12,000 reports.** T11 should assert this per partition rather than inherit it, because it is a property of an export, not of the format.
+- **`_ordered` raises on a gap in `seq` instead of sorting what it has.** `sorted` returns four entries for an array that had five and looks entirely correct doing it.
+- **`_duplicates` raises when one report has both a null `seq` and numbered rows.** The source wrote `reportduplicate` one way; a table recording both is corrupt, not ambiguous, and guessing which to believe is how the AD-013 contract would quietly stop meaning anything.
+- **No tests in this task.** T11 is the test, per the granularity table — the one place in M0 where the function and its test are deliberately separate tasks. The verification below is a throwaway script, not a committed artifact.
+- **The empty-array hole is documented in the module, not fixed.** `"drug": []` produces zero child rows, indistinguishable from an absent `drug`, and this module rebuilds the absent version. No array in the export is empty (L-007), so it is a hole with no known instance. It stays on STATE.md's todo list as M1's to close.
+
+**Verify:**
+
+The task asks for one report by hand. One report proves too little for a rule this project has been bitten by twice, so it ran on one specimen of every shape the module makes a decision about, then on all 12,000:
+
+```
+loaded from data/parquet/year=2025/quarter=1/part=0001-of-0028
+  reports         12,000      duplicate grps   2,953      dim_openfda   2,251
+
+scanned 12,000 source reports
+explicit JSON nulls in the source: 0
+
+PASS  first report in the partition                    24737707
+PASS  a drug with openfda: {} (the L-005 case)         24737707
+PASS  a drug with no openfda at all                    24737707
+PASS  2+ drugs, so order is falsifiable                24737707
+PASS  reportduplicate as a bare object (seq NULL)      24744701
+PASS  reportduplicate as an array (seq 0..N)           24821689
+
+specimens compared: 6   failures: 0
+openfda: {} survives as {} at drug positions [3] (not a missing key)
+bare-object duplicate rebuilt as dict
+array duplicate rebuilt as list of 2
+```
+
+```
+RSS before load             41.9 MB
+RSS after Tables.load      308.5 MB   (0.17 s)
+
+reports compared          12,000
+byte-identical            12,000
+MISMATCHES                     0
+
+round-trip wall              7.4 s
+RSS peak                   354.7 MB   (ceiling 500)
+```
+
+The 2,953 duplicate groups are 1,857 bare objects plus 1,096 arrays — the split L-007 counted before this module existed, which is what says the reconstruction is reading the contract rather than reproducing its own assumption.
+
+**⚠️ The RSS is the finding here, and it is not comfortable.** `Tables.load` costs **266 MB** for a partition that is 4.62 MB on disk — the tables are read into Python dicts, and a dict is roughly 60× its Parquet. The 500 MB ceiling holds today with ~30% headroom, and the headroom is thinner than it looks: no partition in the export exceeds 12,000 records (checked, 1,676 of 1,767 hold exactly that), but bytes range up to 217 MB against this partition's 162 MB, and the dead partition of L-003 carried 43% more drug rows per report than this one. A partition at that density lands near 450 MB. Nothing to fix in T10 — `reconstruct` itself is flat, and the cost is entirely `Tables.load` holding a partition to answer 12,000 lookups. **T11 owns the decision**, and it has a cheap out: the fixture test never loads a partition, and the slow test could stream reports in `safetyreportid` order instead of indexing them all. Recorded rather than absorbed.
 
 **Commit:** `feat(roundtrip): reconstruct source JSON from normalized tables`
 

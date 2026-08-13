@@ -1,7 +1,7 @@
 # State
 
 **Last Updated:** 2026-08-13
-**Current Work:** M0 — Walking Skeleton. T1–T9 done: repo initialized, dependencies pinned, Makefile skeleton, partition resolver, pinned resumable downloader, streaming report iterator, openfda dimension writer, record splitter, schema inference + Parquet sink. Next action: **T10** (round-trip reconstructor) — but read **AD-013 first**, it changes the table count T10 reconstructs from and is waiting on a decision.
+**Current Work:** M0 — Walking Skeleton. T1–T10 done: repo initialized, dependencies pinned, Makefile skeleton, partition resolver, pinned resumable downloader, streaming report iterator, openfda dimension writer, record splitter, schema inference + Parquet sink, round-trip reconstructor. **AD-013 is decided** — five tables, and a null `seq` on `report_duplicate` means the source carried a bare object. **The round trip closes: 12,000 / 12,000 byte-identical from Parquet.** Next action: **T11** (round-trip test), which owns the memory question T10 opened — see the RSS row below.
 
 ---
 
@@ -91,7 +91,7 @@
 **Trade-off:** HF is git+LFS, not an S3 API. A scheduled incremental pipeline means many commits, and history needs occasional squashing. HF public storage is "best-effort" and conditioned on the dataset being genuinely reusable.
 **Impact:** Partially supersedes AD-003's R2 choice for the lake layer. AD-003's core reasoning — columnar not Postgres — is unaffected.
 
-### AD-013: `reportduplicate` becomes a fifth table (2026-08-13) — ⚠️ PROPOSED, needs a decision
+### AD-013: `reportduplicate` becomes a fifth table (2026-08-13) — ACCEPTED
 
 **Decision:** `reportduplicate` leaves the report row and becomes `report_duplicate(safetyreportid, seq, duplicatenumb, duplicatesource)`. A `seq` of `NULL` records that the source carried a bare object rather than an array. Five tables, not four.
 
@@ -104,7 +104,9 @@
 - *Declare "one row means it was an object" and store no marker.* Reproduces this partition exactly, because openFDA never emits an array of one — measured. It rests on a rule nobody guarantees, over a corpus spanning 2004–2025 of which one export has been read.
 - *Two columns, a struct and a list.* Lossless, and it publishes the source's XML-to-JSON artifact as permanent schema, with every M2 query having to read both.
 
-**Impact:** implemented in T9 and **not yet reflected in the specs.** `design.md` §Data contracts still says four tables and `spec.md` P1 §2 still lists four; both are left untouched on purpose — rewriting an acceptance criterion to match code that already runs is the drift this project logs rather than performs. If the decision holds, those two lines change with it. T10 and T11 are the tasks that depend on it, which is why the decision is due now.
+**Impact:** implemented in T9, decided 2026-08-13, and only then written into the specs — `design.md` §Data contracts and `spec.md` P1 §2 now say five tables. The order matters more than the edit: the two lines sat wrong for a whole task rather than being quietly corrected to match code that already ran, which is the difference between an acceptance criterion and a transcript of the implementation.
+
+The null `seq` is now stated in design.md as a contract rather than left as a property of the code. T10 reads that null to decide whether to rebuild an object or a list, so a reader who does not know the rule cannot check the round-trip claim — and an unverifiable lossless claim is the one thing this project cannot ship. T10 and T11 are unblocked.
 
 ---
 
@@ -228,6 +230,20 @@ Two more facts fell out of the same pass: `patient.drug` and `patient.reaction` 
 
 **Prevents:** a schema conflict at partition 900 of a 1,767-partition crawl, and the two shortcuts that were available here. Promoting the bare object to a one-element list would have cost nothing today and made "byte-identical" mean "identical after a normalization we did not mention". Deriving the shape from the row count would have worked on every partition of this export and on no partition anyone has checked.
 
+### L-008: The normalization that makes the round trip pass is the one place it could lie
+
+**Context:** T10 rebuilds a report from Parquet and compares it to the source. Parquet has no absent column — a report with no `companynumb` comes back as `{"companynumb": None}` where the source had no such key — so both sides are stripped of nulls before comparing. The spike did this too, in a helper called `sn()`, and the task asked to keep it and document why it is legitimate.
+
+**Problem:** documenting it is not enough, and the reason is uncomfortable. Stripping nulls is an inverse of what Parquet did **only if the source never carries an explicit JSON null.** If it ever does, the strip erases a real value on both sides, the two sides agree, and the test passes. That is not a small bug: it is the test built to catch silent data loss becoming the mechanism that hides it — and it would hide it behind a `12000/12000` that reads exactly like a proof.
+
+Every other check in this pipeline can be wrong and something downstream notices. This one is load-bearing for the project's central claim, and it is self-certifying.
+
+**Solution:** measure the condition instead of asserting it. Walked every value at every depth of all 12,000 reports: **0 explicit nulls.** So the normalization is an inverse here, provably, and the comparison means what it says.
+
+The measurement does not transfer. Whether an export carries explicit nulls is a property of that export, not of Parquet or of JSON, and one export of 91 buckets has been read. T11 asserts it per partition rather than inheriting T10's number, which costs one pass and turns an inherited assumption into a check that travels with the corpus.
+
+**Prevents:** a round-trip test that is green because it compares two documents after deleting the difference. Also the general shape of it, which is worth more than the instance: any normalization applied to *both* sides of an equality test can only ever make it pass, so the justification has to be measured on the data and not argued from the format.
+
 ### L-002: Always measure before believing a size number
 
 **Context:** Two sizing assumptions were wrong on inspection — the FAERS ASCII files (assumed fast, actually stalled) and the JSON corpus (assumed dense, actually 93% redundant).
@@ -282,6 +298,12 @@ Two more facts fell out of the same pass: `patient.drug` and `patient.reaction` 
 | UNII coverage | **82.9%** of drug rows, by join (L-004 said 83.3%) | T9, same file |
 | Peak RSS, both passes + metrics | **175 MB** against a 500 MB ceiling | T9, `/usr/bin/time -l` |
 | Wall time, one partition | **9.5 s** cold, **5.2 s** against the committed schema | T9, same run |
+| **Round trip, whole partition** | **12,000 / 12,000 byte-identical**, rebuilt from Parquet | T10, `reconstruct` vs the source zip |
+| Explicit JSON nulls in the source | **0** across all 12,000 reports | T10, walked every value at every depth |
+| Round-trip wall time | **7.4 s** for 12,000 reports, 0.17 s of it loading the tables | T10, same run |
+| `Tables.load` memory | **266 MB** for a 4.62 MB Parquet partition — peak 354.7 MB of a 500 MB ceiling | T10, `ru_maxrss` before and after |
+| Max records in any partition | **12,000**; 1,676 of 1,767 hold exactly that, none more | T10, manifest, all 1,767 |
+| `report_duplicate` groups | **2,953** reports = 1,857 bare objects + 1,096 arrays | T10, matches L-007's recon count |
 
 > ⚠️ Caveat, hardened by **L-006**: per-partition figures come from one partition, `2025q1/drug-event-0001-of-0034` — **which no longer exists.** The 2026-08-10 export chunks 2025q1 into 28 files, not 34. These figures are prior expectations, not reproducible measurements. **T6 through T9 have since re-measured every one of them** against `2025q1/0001-of-0028`: reports 12,000 (matches), drug rows 71,990 and reaction rows 44,916 (both lower), compression 175× rather than 338×. Where the two disagree, the T6–T9 row is the measurement and the spike row is history. The corpus-level rows above (1,767 partitions, 111 GiB, 20,692,690 records) were re-verified against the manifest on 2026-08-13 and hold exactly.
 
@@ -304,9 +326,11 @@ Two more facts fell out of the same pass: `patient.drug` and `patient.reaction` 
 - [x] ~~Choose Quarto vs. Evidence.dev~~ — Quarto, AD-009
 - [ ] Confirm remote storage target at M1 start (AD-012 — HF Datasets front-runner)
 - [x] ~~Record the distinct-`openfda` count during T9~~ — 2,251, and L-003's numbers are now annotated rather than trusted
-- [ ] **Decide AD-013** (`reportduplicate` as a fifth table) — T10 and T11 are blocked on the answer, not on the code
+- [x] ~~**Decide AD-013** (`reportduplicate` as a fifth table)~~ — accepted 2026-08-13. Five tables, `seq IS NULL` is the bare-object marker, specs updated to match
 - [ ] Empty arrays are indistinguishable from absent fields (L-007). Nothing in this export triggers it; decide before M1 crawls 1,767 partitions
 - [ ] Row-group size: 2,000 costs ~12% of the output size (T9). T18 owns the trade against peak RSS
+- [ ] **`Tables.load` holds a whole partition in Python dicts — 266 MB for 4.62 MB of Parquet (T10).** Fine at 354 MB peak against the 500 MB ceiling, thin on a denser partition. **T11 decides:** the fixture test never loads one, and the slow test could stream in `safetyreportid` order instead of indexing everything
+- [ ] T11 must assert "zero explicit nulls" per partition rather than inherit T10's measurement (L-008)
 - [ ] Add `ijson` to PROJECT.md's key dependencies — required by the streaming design, currently missing
 
 ---
