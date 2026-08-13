@@ -60,7 +60,7 @@ Narrow interfaces, deep implementations. Each module hides one hard thing and ex
 | `hindsight/schema.py` | `infer(reports) -> Schemas` · `save/load(path)` | Type unification across 12,000 heterogeneous records |
 | `hindsight/normalize.py` | `split(report) -> RowSet` | The `openfda` hashing rule and the empty-dict trap |
 | `hindsight/write.py` | `ParquetSink(schema, path)` (context manager) | Batching, row groups, ZSTD-9, bounded memory |
-| `hindsight/roundtrip.py` | `reconstruct(tables, report_id) -> dict` | Reassembling nested JSON from four flat tables |
+| `hindsight/roundtrip.py` | `reconstruct(tables, report_id) -> dict` | Reassembling nested JSON from five flat tables |
 | `hindsight/cli.py` | `hindsight ingest <partition-id>` | Wiring the above into one command |
 
 **Why `stream` and `schema` are separate modules:** pass 1 and pass 2 both consume `iter_reports`. If schema inference lived inside the streamer, you couldn't run it twice, and the two-pass design would collapse back into sampling.
@@ -69,7 +69,9 @@ Narrow interfaces, deep implementations. Each module hides one hard thing and ex
 
 ## Data contracts
 
-Four tables. `safetyreportid` is the join key throughout.
+Five tables. `safetyreportid` is the join key throughout.
+
+> Four of them were designed up front. `report_duplicate` was added by AD-013 after T9 measured the field arriving in two shapes, and this section was corrected only once that decision was taken — not when the code started writing it.
 
 **`report`** — one row per report
 - `safetyreportid` (string, PK)
@@ -86,15 +88,26 @@ The prefix is what makes the round trip unambiguous: at reconstruction time, `pt
 **`report_reaction`** — one row per reaction per report
 - `safetyreportid`, `seq`, every reaction field
 
+**`report_duplicate`** — one row per duplicate marker per report (AD-013)
+- `safetyreportid`, `seq` (int, **nullable** — see below), every `reportduplicate` field
+
+`duplicatenumb` is the field M2's deduplication joins on, which is the second reason this is a table: a repeated child left in a column is something every later query has to unnest before it can join.
+
 **`dim_openfda`** — one row per distinct enrichment block
 - `openfda_key` (string, PK) = `sha1(json.dumps(block, sort_keys=True))[:16]`
 - every openfda field (mostly `list<string>`)
 
-### The two rules that are non-negotiable
+### The three rules that are non-negotiable
 
 1. **`openfda_key` is `None` only when the `openfda` field is absent.** An `openfda: {}` present in the source hashes to the key of the empty dict and gets a dimension row. This is the exact bug that produced 492 mismatches in the spike — the difference between *"we checked and found nothing"* and *"we never looked."*
 
-2. **Nested single objects stay as Arrow structs**, not flattened, not JSON-stringified. `pt_summary`, `primarysource`, `sender`, `receiver`, `reportduplicate` are all structs. Parquet stores them natively and reconstruction is a straight assignment. Flattening would need an escape convention for the separator, and every escape convention eventually meets a field name that contains the separator.
+2. **Nested single objects stay as Arrow structs**, not flattened, not JSON-stringified. `pt_summary`, `primarysource`, `sender`, `receiver` are all structs. Parquet stores them natively and reconstruction is a straight assignment. Flattening would need an escape convention for the separator, and every escape convention eventually meets a field name that contains the separator.
+
+   `reportduplicate` was on this list until T9 tried to write it. It is not a nested single object — it arrives as a bare object in 1,857 reports of one partition and as an array in 1,096 (L-007), and Arrow holds one type per column, so no struct can hold it. It is a repeated child wearing a struct's clothes.
+
+3. **A null `seq` on `report_duplicate` means the source carried a bare object, not an array.** This is a contract, not an implementation detail: `reconstruct` reads that null to decide whether to rebuild `{…}` or `[{…}]`, so it is the difference between a round trip that is byte-identical and one that is identical after an undeclared normalization.
+
+   The tempting shortcut is to infer the shape from the row count — one row means it was an object. That reproduces this partition exactly, because openFDA never emits an array of length 1 (measured, all 1,096). It rests on a rule nobody guarantees, across a corpus spanning 2004–2025 of which exactly one export has been read. The null is cheap; the assumption is not.
 
 ---
 

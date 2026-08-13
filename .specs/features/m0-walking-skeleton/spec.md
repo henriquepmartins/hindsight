@@ -79,14 +79,15 @@ M0 pushes 12,000 reports through every layer of the real architecture and puts o
 **Acceptance Criteria:**
 
 1. WHEN a partition zip is processed THEN the system SHALL yield reports one at a time from inside the zip without extracting it to disk
-2. WHEN normalization completes THEN the system SHALL emit four tables: `report`, `report_drug`, `report_reaction`, `dim_openfda`
+2. WHEN normalization completes THEN the system SHALL emit five tables: `report`, `report_drug`, `report_reaction`, `report_duplicate`, `dim_openfda` (AD-013 — this criterion said four until the decision was taken, after T9 had already measured why it could not be)
+2a. WHEN a `reportduplicate` arrives as a bare object rather than an array THEN the system SHALL record `seq` as null, so the source's shape is stored rather than assumed (L-007)
 3. WHEN a drug entry carries an `openfda` block THEN the system SHALL replace it with a SHA-1 content-hash key and store the block once in `dim_openfda`
 4. WHEN a drug entry carries `openfda: {}` THEN the system SHALL preserve the distinction from an absent `openfda` — an empty dict is a key, not a null (L-005)
 5. WHEN any field appears in the source THEN the system SHALL retain it — no hardcoded keep-list, ever (L-005)
 6. WHEN Parquet is written THEN the system SHALL use ZSTD level 9 and partition by year/quarter
 7. WHEN the process runs THEN peak RSS SHALL stay below 500 MB
 
-**Independent Test:** Process the 2025q1 partition, observe 4 Parquet files and a memory ceiling well under the 1.2 GB input.
+**Independent Test:** Process the 2025q1 partition, observe 5 Parquet files and a memory ceiling well under the 1.2 GB input.
 
 ---
 
@@ -98,7 +99,7 @@ M0 pushes 12,000 reports through every layer of the real architecture and puts o
 
 **Acceptance Criteria:**
 
-1. WHEN the round-trip test runs THEN the system SHALL reconstruct the original nested JSON from the four tables and compare it to source, report by report
+1. WHEN the round-trip test runs THEN the system SHALL reconstruct the original nested JSON from the five tables and compare it to source, report by report
 2. WHEN all reports match THEN the test SHALL pass and print the count compared
 3. WHEN any report differs THEN the test SHALL fail and name the differing keys and the `safetyreportid`
 4. WHEN the test runs in CI on push THEN the build SHALL fail on mismatch
