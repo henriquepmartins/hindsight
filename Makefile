@@ -30,8 +30,8 @@ help: ## Show this list
 install: ## Sync the pinned environment from uv.lock
 	uv sync --frozen
 
-ingest: ## Fetch a partition and normalize it to Parquet  [TODO T9]
-	$(call todo,T9)
+ingest: ## Fetch a partition and normalize it to Parquet
+	uv run hindsight ingest $(PARTITION)
 
 test: ## Run the round-trip integrity test  [TODO T11]
 	$(call todo,T11)

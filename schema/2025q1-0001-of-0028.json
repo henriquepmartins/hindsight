@@ -1,0 +1,162 @@
+{
+  "source": {
+    "partition": "2025q1/0001-of-0028",
+    "export_date": "2026-08-10",
+    "records": 12000
+  },
+  "tables": {
+    "report": {
+      "authoritynumb": "string",
+      "companynumb": "string",
+      "duplicate": "string",
+      "fulfillexpeditecriteria": "string",
+      "occurcountry": "string",
+      "primarysource": {
+        "literaturereference": "string",
+        "qualification": "string",
+        "reportercountry": "string"
+      },
+      "primarysourcecountry": "string",
+      "pt_patientagegroup": "string",
+      "pt_patientonsetage": "string",
+      "pt_patientonsetageunit": "string",
+      "pt_patientsex": "string",
+      "pt_patientweight": "string",
+      "pt_summary": {
+        "narrativeincludeclinical": "string"
+      },
+      "receiptdate": "string",
+      "receiptdateformat": "string",
+      "receivedate": "string",
+      "receivedateformat": "string",
+      "receiver": {
+        "receiverorganization": "string",
+        "receivertype": "string"
+      },
+      "reporttype": "string",
+      "safetyreportid": "string",
+      "safetyreportversion": "string",
+      "sender": {
+        "senderorganization": "string",
+        "sendertype": "string"
+      },
+      "serious": "string",
+      "seriousnesscongenitalanomali": "string",
+      "seriousnessdeath": "string",
+      "seriousnessdisabling": "string",
+      "seriousnesshospitalization": "string",
+      "seriousnesslifethreatening": "string",
+      "seriousnessother": "string",
+      "transmissiondate": "string",
+      "transmissiondateformat": "string"
+    },
+    "report_drug": {
+      "actiondrug": "string",
+      "activesubstance": {
+        "activesubstancename": "string"
+      },
+      "drugadditional": "string",
+      "drugadministrationroute": "string",
+      "drugauthorizationnumb": "string",
+      "drugbatchnumb": "string",
+      "drugcharacterization": "string",
+      "drugcumulativedosagenumb": "string",
+      "drugcumulativedosageunit": "string",
+      "drugdosageform": "string",
+      "drugdosagetext": "string",
+      "drugenddate": "string",
+      "drugenddateformat": "string",
+      "drugindication": "string",
+      "drugintervaldosagedefinition": "string",
+      "drugintervaldosageunitnumb": "string",
+      "drugrecurreadministration": "string",
+      "drugrecurrence": [
+        {
+          "drugrecuraction": "string",
+          "drugrecuractionmeddraversion": "string"
+        }
+      ],
+      "drugseparatedosagenumb": "string",
+      "drugstartdate": "string",
+      "drugstartdateformat": "string",
+      "drugstructuredosagenumb": "string",
+      "drugstructuredosageunit": "string",
+      "drugtreatmentduration": "string",
+      "drugtreatmentdurationunit": "string",
+      "medicinalproduct": "string",
+      "openfda_key": "string",
+      "safetyreportid": "string",
+      "seq": "int64"
+    },
+    "report_reaction": {
+      "reactionmeddrapt": "string",
+      "reactionmeddraversionpt": "string",
+      "reactionoutcome": "string",
+      "safetyreportid": "string",
+      "seq": "int64"
+    },
+    "report_duplicate": {
+      "duplicatenumb": "string",
+      "duplicatesource": "string",
+      "safetyreportid": "string",
+      "seq": "int64"
+    },
+    "dim_openfda": {
+      "application_number": [
+        "string"
+      ],
+      "brand_name": [
+        "string"
+      ],
+      "generic_name": [
+        "string"
+      ],
+      "manufacturer_name": [
+        "string"
+      ],
+      "nui": [
+        "string"
+      ],
+      "openfda_key": "string",
+      "package_ndc": [
+        "string"
+      ],
+      "pharm_class_cs": [
+        "string"
+      ],
+      "pharm_class_epc": [
+        "string"
+      ],
+      "pharm_class_moa": [
+        "string"
+      ],
+      "pharm_class_pe": [
+        "string"
+      ],
+      "product_ndc": [
+        "string"
+      ],
+      "product_type": [
+        "string"
+      ],
+      "route": [
+        "string"
+      ],
+      "rxcui": [
+        "string"
+      ],
+      "spl_id": [
+        "string"
+      ],
+      "spl_set_id": [
+        "string"
+      ],
+      "substance_name": [
+        "string"
+      ],
+      "unii": [
+        "string"
+      ]
+    }
+  }
+}

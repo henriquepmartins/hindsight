@@ -67,6 +67,18 @@ def _sole_json_member(archive: zipfile.ZipFile) -> str:
 # --- api --------------------------------------------------------------------
 
 
+def json_bytes(zip_path: Path | str) -> int:
+    """How much JSON the archive holds, uncompressed.
+
+    Read from the zip's central directory, so it costs a seek rather than a
+    decompression pass. It is the denominator of the compression ratio the
+    project publishes — 807,482,752 bytes for 2025q1/0001-of-0028 (T6), against
+    the 1.2 GB design.md assumed.
+    """
+    with zipfile.ZipFile(zip_path) as archive:
+        return archive.getinfo(_sole_json_member(archive)).file_size
+
+
 def iter_reports(zip_path: Path | str) -> Iterator[dict]:
     """Yield every report in a partition archive, in file order.
 

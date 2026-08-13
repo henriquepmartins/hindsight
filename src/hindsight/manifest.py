@@ -63,6 +63,15 @@ class Partition:
     size_mb: float
     records: int
 
+    @property
+    def stem(self) -> str:
+        """The id as one path component: `2025q1/0001-of-0028` -> `2025q1-0001-of-0028`.
+
+        The pin and the schema file are named for the same partition, so they
+        are named by the same rule and sort next to each other on disk.
+        """
+        return self.id.replace("/", "-")
+
 
 @dataclass(frozen=True)
 class Export:

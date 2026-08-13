@@ -159,9 +159,8 @@ def ensure_local(
         FetchError: the pin on disk could not be read.
         httpx.HTTPError: the download failed.
     """
-    stem = partition.id.replace("/", "-")
-    archive = raw_dir / f"{stem}.zip"
-    pin_path = pin_dir / f"{stem}.json"
+    archive = raw_dir / f"{partition.stem}.zip"
+    pin_path = pin_dir / f"{partition.stem}.json"
     pin = _read_pin(pin_path)
 
     if pin is not None and archive.exists():
