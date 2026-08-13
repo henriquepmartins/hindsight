@@ -317,6 +317,76 @@ def test_one_row_per_reaction_keyed_and_ordered(dimension):
     ]
 
 
+# --- split: duplicate rows, and the shape the source used -------------------
+
+
+def test_one_duplicate_arrives_as_a_bare_object_and_keeps_a_null_seq(dimension):
+    """openFDA writes one occurrence as an object and two or more as an array —
+    1,857 against 1,096 in this partition, and never an array of one. The null
+    `seq` is the only record of which shape the source used, and T10 needs it to
+    put an object back as an object."""
+    source = report(reportduplicate={"duplicatenumb": "D1", "duplicatesource": "X"})
+
+    rows = split(source, dimension)
+
+    assert rows.duplicates == [
+        {
+            "safetyreportid": "1",
+            "seq": None,
+            "duplicatenumb": "D1",
+            "duplicatesource": "X",
+        }
+    ]
+
+
+def test_several_duplicates_arrive_as_an_array_and_keep_their_positions(dimension):
+    source = report(reportduplicate=[{"duplicatenumb": "D1"}, {"duplicatenumb": "D2"}])
+
+    rows = split(source, dimension)
+
+    assert [(row["seq"], row["duplicatenumb"]) for row in rows.duplicates] == [
+        (0, "D1"),
+        (1, "D2"),
+    ]
+
+
+def test_an_array_of_one_stays_distinguishable_from_a_bare_object(dimension):
+    """No such array exists in the 2026-08-10 export. The corpus runs from 2004
+    and one export has been looked at, so the distinction is kept rather than
+    derived from the row count."""
+    boxed = split(report(reportduplicate=[{"duplicatenumb": "D1"}]), dimension)
+    bare = split(report(reportduplicate={"duplicatenumb": "D1"}), dimension)
+
+    assert boxed.duplicates[0]["seq"] == 0
+    assert bare.duplicates[0]["seq"] is None
+
+
+def test_the_duplicate_block_never_lands_in_the_report_row(dimension):
+    """It is a repeated child, so leaving it in the report row would put a
+    struct in one report and an array in the next — which is exactly the
+    conflict that has no Arrow column."""
+    source = report(reportduplicate={"duplicatenumb": "D1"})
+
+    rows = split(source, dimension)
+
+    assert "reportduplicate" not in rows.report
+
+
+def test_a_report_with_no_duplicates_produces_no_duplicate_rows(dimension):
+    """9,047 of 12,000 reports. Absent is absent — no row, not a null row."""
+    assert split(report(), dimension).duplicates == []
+
+
+def test_a_duplicate_entry_that_is_not_an_object_raises(dimension):
+    with pytest.raises(UnexpectedReportShape, match=r"'reportduplicate'\[0\]"):
+        split(report(reportduplicate=["D1"]), dimension)
+
+
+def test_a_duplicate_that_is_neither_object_nor_array_raises(dimension):
+    with pytest.raises(UnexpectedReportShape, match="'reportduplicate' should be an array"):
+        split(report(reportduplicate="D1"), dimension)
+
+
 # --- split: what a malformed report costs -----------------------------------
 
 

@@ -1,9 +1,9 @@
-"""One nested report becomes rows in four flat tables.
+"""One nested report becomes rows in five flat tables.
 
 `split()` is the move the whole project rests on. A FAERS report is a document
 — a patient, an array of drugs, an array of reactions, each drug carrying an
 `openfda` enrichment block — and disproportionality statistics need columns.
-The shape of the four tables is in design.md; two properties of the translation
+The shape of the tables is in design.md; two properties of the translation
 are load-bearing enough to live here:
 
 **Every field travels.** Nothing in this module names a source field it wants.
@@ -17,6 +17,13 @@ it.
 **`seq` is the array position.** JSON arrays are ordered and SQL tables are
 not. Without the original index, T10 can rebuild a report's drugs but not the
 order they were reported in, and the round-trip proof fails.
+
+A third repeated child hides in plain sight. `reportduplicate` arrives as a
+bare object when the report has one duplicate and as an array when it has two
+or more — the corpus is an XML-to-JSON conversion, and a repeated element that
+occurred once has no array to be in. It gets the same treatment as `drug` and
+`reaction`, a table with a `seq`, and the bare-object case is recorded as a
+null `seq`: no array, so no position in one.
 
 The `openfda` blocks are 92.7% of the corpus's JSON bytes, and they repeat —
 the same enrichment is stamped onto every drug row that mentions the product
@@ -52,6 +59,34 @@ REPORT_ID = "safetyreportid"
 SEQ = "seq"
 DRUG = "drug"
 REACTION = "reaction"
+DUPLICATE = "reportduplicate"
+
+# The tables, named once. Every later module — the schema file, the Parquet file
+# names, the metrics — reads them from here, so a table cannot be renamed in one
+# place and left behind in another.
+REPORT_TABLE = "report"
+DRUG_TABLE = "report_drug"
+REACTION_TABLE = "report_reaction"
+DUPLICATE_TABLE = "report_duplicate"
+OPENFDA_TABLE = "dim_openfda"
+
+TABLES = (REPORT_TABLE, DRUG_TABLE, REACTION_TABLE, DUPLICATE_TABLE, OPENFDA_TABLE)
+
+# The columns each table gets from this module rather than from a report — the
+# join keys and positions `_row` writes. Their types are known before a record
+# is read, which is what schema.py needs to keep `seq` an integer in a partition
+# where every row of it is null. `report` has none: its `safetyreportid` is the
+# source's own field, travelling like any other.
+#
+# A column missing from here is inferred like source data, which is the harmless
+# direction for this to drift in.
+PIPELINE_COLUMNS = {
+    REPORT_TABLE: (),
+    DRUG_TABLE: (REPORT_ID, SEQ, OPENFDA_KEY),
+    REACTION_TABLE: (REPORT_ID, SEQ),
+    DUPLICATE_TABLE: (REPORT_ID, SEQ),
+    OPENFDA_TABLE: (OPENFDA_KEY,),
+}
 
 # The two `patient` arrays that become tables of their own. Not a keep-list:
 # every other patient field travels into the report row untouched, whatever it
@@ -59,6 +94,11 @@ REACTION = "reaction"
 # also why they are derived from the same constants the loops read, rather than
 # written out a second time.
 CHILD_ARRAYS = (DRUG, REACTION)
+
+# The top-level fields that do not travel into the report row: `patient` because
+# it is unwrapped into `pt_` columns and two tables, `reportduplicate` because it
+# is a repeated child of its own (see `_duplicates`).
+UNWRAPPED = (PATIENT, DUPLICATE)
 
 
 # --- errors -----------------------------------------------------------------
@@ -77,7 +117,7 @@ class KeyCollision(NormalizeError):
 
 
 class UnexpectedReportShape(NormalizeError):
-    """A report is not the shape the four-table model can hold.
+    """A report is not the shape the table model can hold.
 
     Raised rather than coerced. Every alternative here is silent: a missing
     `safetyreportid` orphans that report's child rows, a string where an array
@@ -169,7 +209,7 @@ class OpenfdaDimension:
 
 @dataclass(frozen=True, slots=True)
 class RowSet:
-    """One report's contribution to each of the four tables.
+    """One report's contribution to each of the five tables.
 
     `openfda` holds only the blocks this report was the first to carry, so
     concatenating every `RowSet` in a partition gives the dimension exactly
@@ -179,7 +219,23 @@ class RowSet:
     report: dict
     drugs: list[dict]
     reactions: list[dict]
+    duplicates: list[dict]
     openfda: list[dict]
+
+    def by_table(self) -> dict[str, list[dict]]:
+        """The same rows, keyed by the table each one belongs to.
+
+        The report row is wrapped in a list so that both passes over a partition
+        — inferring the schema and writing the Parquet — are one loop over five
+        identical cases instead of one loop and a special case.
+        """
+        return {
+            REPORT_TABLE: [self.report],
+            DRUG_TABLE: self.drugs,
+            REACTION_TABLE: self.reactions,
+            DUPLICATE_TABLE: self.duplicates,
+            OPENFDA_TABLE: self.openfda,
+        }
 
 
 def _row(columns: dict, fields: dict, table: str) -> dict:
@@ -240,14 +296,14 @@ def _patient(report: dict, report_id: str) -> dict:
     return patient
 
 
-def _entries(patient: dict, field: str, report_id: str) -> Iterator[tuple[int, dict]]:
-    """Yield `(position, entry)` for one of the patient arrays, or nothing.
+def _entries(container: dict, field: str, report_id: str) -> Iterator[tuple[int, dict]]:
+    """Yield `(position, entry)` for one of the repeated children, or nothing.
 
     The type checks are not ceremony. `enumerate` accepts a string and yields
     one character per position, so an array that arrives as a scalar would
     become rows that look entirely valid until the round-trip test runs.
     """
-    entries = patient.get(field)
+    entries = container.get(field)
 
     if entries is None:
         return
@@ -268,6 +324,35 @@ def _entries(patient: dict, field: str, report_id: str) -> Iterator[tuple[int, d
         yield seq, entry
 
 
+def _duplicates(report: dict, report_id: str) -> Iterator[tuple[int | None, dict]]:
+    """Yield `(position, entry)` for `reportduplicate`, in either shape it comes.
+
+    openFDA serializes one occurrence as a bare object and two or more as an
+    array. Measured over 2025q1/0001-of-0028: 1,857 objects, 1,096 arrays, and
+    **not one array of length 1** — the fingerprint of an XML-to-JSON conversion,
+    where a repeated element that happens to occur once has no array to be in.
+
+    So the position is `None` for the bare object, and that null is the whole
+    record of which shape the source used: T10 puts an object back as an object
+    rather than as a list of one. Deriving the shape from the row count instead
+    — one row means object — reproduces this partition exactly and rests on a
+    rule nobody guarantees, in a corpus spanning 2004 to 2025 of which exactly
+    one export has been looked at.
+
+    `duplicatenumb` is the field M2's deduplication joins on, which is the other
+    reason this is a table rather than a column: a repeated child in a column is
+    something every later query has to unnest first.
+    """
+    entries = report.get(DUPLICATE)
+
+    if isinstance(entries, dict):
+        yield None, entries
+
+        return
+
+    yield from _entries(report, DUPLICATE, report_id)
+
+
 def split(report: dict, dimension: OpenfdaDimension) -> RowSet:
     """Turn one report into rows for the report, drug, reaction and dim tables.
 
@@ -277,20 +362,20 @@ def split(report: dict, dimension: OpenfdaDimension) -> RowSet:
     (L-005) inside this module rather than repeated at every call site.
 
     Raises:
-        UnexpectedReportShape: the report cannot be held by the four tables.
+        UnexpectedReportShape: the report cannot be held by the tables.
         KeyCollision: two openfda blocks truncated to one dimension key.
     """
     report_id = _report_id(report)
     patient = _patient(report, report_id)
 
     report_row = _row(
-        {name: value for name, value in report.items() if name != PATIENT},
+        {name: value for name, value in report.items() if name not in UNWRAPPED},
         {
             PATIENT_PREFIX + name: value
             for name, value in patient.items()
             if name not in CHILD_ARRAYS
         },
-        "report",
+        REPORT_TABLE,
     )
 
     drugs: list[dict] = []
@@ -302,16 +387,27 @@ def split(report: dict, dimension: OpenfdaDimension) -> RowSet:
             _row(
                 {REPORT_ID: report_id, SEQ: seq, OPENFDA_KEY: block_key},
                 {name: value for name, value in drug.items() if name != OPENFDA},
-                "report_drug",
+                DRUG_TABLE,
             )
         )
 
         if block is not None:
-            blocks.append(_row({OPENFDA_KEY: block_key}, block, "dim_openfda"))
+            blocks.append(_row({OPENFDA_KEY: block_key}, block, OPENFDA_TABLE))
 
     reactions = [
-        _row({REPORT_ID: report_id, SEQ: seq}, reaction, "report_reaction")
+        _row({REPORT_ID: report_id, SEQ: seq}, reaction, REACTION_TABLE)
         for seq, reaction in _entries(patient, REACTION, report_id)
     ]
 
-    return RowSet(report=report_row, drugs=drugs, reactions=reactions, openfda=blocks)
+    duplicates = [
+        _row({REPORT_ID: report_id, SEQ: seq}, entry, DUPLICATE_TABLE)
+        for seq, entry in _duplicates(report, report_id)
+    ]
+
+    return RowSet(
+        report=report_row,
+        drugs=drugs,
+        reactions=reactions,
+        duplicates=duplicates,
+        openfda=blocks,
+    )
