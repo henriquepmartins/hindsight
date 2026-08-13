@@ -278,21 +278,48 @@ The 2,251 settles the 2,537-vs-1,491 contradiction STATE.md had parked for M0-11
 **⚠️ The other trap from L-005:** do not build the column list by inspecting one record. Iterate `report.items()`. If you find yourself typing a list of field names, stop — that's the bug that dropped `companynumb` from 89.6% of reports.
 
 **Done when:**
-- [ ] Report with no `patient.drug` yields the report row and zero drug rows (not a skipped report)
-- [ ] `seq` is the original array index
-- [ ] Round-tripping keys by hand on one report loses nothing
-- [ ] No literal field-name list appears anywhere in the function
+- [x] Report with no `patient.drug` yields the report row and zero drug rows (not a skipped report)
+- [x] `seq` is the original array index
+- [x] Round-tripping keys by hand on one report loses nothing
+- [x] No literal field-name list appears anywhere in the function
+
+**Deviations from the original criteria, and why:**
+- **`split(report, dimension)`, not `split(report)`.** design.md gives this module one job — hiding the openfda hashing rule and the empty-dict trap — and first-sight dedup is state that spans the whole partition, so a per-report pure function can compute a key but cannot decide whether the block has been emitted. The alternative, returning the raw block for T9 to dedup, puts the L-005 test back at the call site that T7 deliberately took it out of. The dimension is a required argument rather than a default, because a fresh one per call would emit every block 32× and still look correct.
+- **`RowSet` has four fields, not three.** `openfda` holds the blocks this report was the first to carry — empty for all but 2,251 of the 12,000. T9 then writes four tables from one object instead of maintaining a fifth stream of its own.
+- **A source field that collides with a column raises.** Not in the original criteria, and the reason it is now: `{**columns, **fields}` resolves a duplicate by keeping the last value silently, so a drug field named `seq` would overwrite the array position the round trip is rebuilt from. Checked rather than assumed — none of the 27 top-level names start with `pt_`, and no drug or reaction field is named `safetyreportid`, `seq`, or `openfda_key`. The guard cannot fire on the current export; it fires on the export where openFDA adds a field, which is the whole point. The message names the table and the colliding field and **not** the report: a clash is openFDA changing its schema, so it hits every report at once and which one arrived first carries no information. The first draft threaded a formatted `report 'x' drug[3]` string into all four call sites, which meant building ~117,000 strings per partition for a message that never prints — measured at 1.299 s against 1.209 s for the same work, ~7% of `split`'s runtime and ~2.6 min across 1,767 partitions.
+- **A missing `safetyreportid` raises.** It is the only join key back to a report's child rows. Measured: 12,000 of 12,000 present, all distinct.
+- **`patient` and the two arrays are type-checked.** `enumerate` accepts a string and yields one character per position, so `drug: "ASPIRIN"` would otherwise become rows that look valid until T11 runs. The array check is technically redundant — a non-list is caught one line later by the per-entry check — but it is kept for the message: `'drug' should be an array` names the problem, `'drug'[0] should be an object` sends the reader at partition 900 to the wrong place.
+- **The four field names in the module are table boundaries, not a keep-list.** `patient`, `drug`, `reaction`, `openfda` are named because each becomes a table of its own. Every other field travels by iteration, whatever it is called. Pinned by a test that invents a field name and asserts it arrives.
+- **Reaction rows are 44,916**, not L-003's 57,664 — that figure came from the partition that no longer exists (L-006). Drug rows are 71,990, matching T7.
+- Covered by `tests/test_normalize.py` — now 34 cases, no network, 0.01 s. Each new test was checked by mutation rather than by having been written first: eight ways of breaking the splitter were applied one at a time (keep-list, falsy openfda test, `seq` as a counter, silent overwrite, tolerated missing id, unchecked array, inline block, arrays leaking into the report row) and every one turned the suite red.
 
 **Verify:**
 ```bash
+uv run pytest tests/test_normalize.py -q     # 34 passed, no network
 uv run python -c "
 from hindsight.stream import iter_reports
-from hindsight.normalize import split
+from hindsight.normalize import split, OpenfdaDimension
 r = next(iter_reports('data/raw/2025q1-0001-of-0028.zip'))
-rs = split(r)
+rs = split(r, OpenfdaDimension())
 src = set(r) | {'pt_'+k for k in (r.get('patient') or {}) if k not in ('drug','reaction')}
 assert set(rs.report) >= src - {'patient'}, src - set(rs.report)
 print('no fields lost')"
+```
+
+One report proves too little for a rule this project has already been bitten by, so the same check ran over all 12,000, comparing every source key at every level against the row it should have landed in:
+
+```
+reports            12,000   manifest says 12,000   match True
+drug rows          71,990
+reaction rows      44,916
+dim_openfda rows    2,251   == len(dimension)
+openfda absent     11,128   -> openfda_key is None
+openfda empty {}      507   -> a real key
+reports losing a field   0
+report columns  32   (26 top-level + 6 pt_)
+drug columns    29   (26 source + safetyreportid, seq, openfda_key)
+reaction columns 5   (3 source + safetyreportid, seq)
+peak RSS      65 MiB   wall 4.8 s
 ```
 
 **Commit:** `feat(normalize): split reports into fact rows`

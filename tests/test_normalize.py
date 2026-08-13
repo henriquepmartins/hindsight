@@ -1,16 +1,24 @@
-"""Content-addressed openfda blocks, and the empty-dict distinction.
+"""Content-addressed openfda blocks, and one report becoming four tables' rows.
 
-Two properties carry the weight here. The key must depend on a block's content
-and nothing else — not key order, not insertion order, not the run — because
-`dim_openfda` doubles quietly if it doesn't. And an empty block must stay
-distinguishable from an absent one, which is the bug (L-005) that these tests
-exist to keep dead.
+Three properties carry the weight here. The openfda key must depend on a
+block's content and nothing else — not key order, not insertion order, not the
+run — because `dim_openfda` doubles quietly if it doesn't. An empty block must
+stay distinguishable from an absent one, which is the bug (L-005) that these
+tests exist to keep dead. And `split` must carry every field it is handed:
+these tests are written so that any keep-list, any dropped field, and any
+silently overwritten column turns one of them red.
 """
 
 import pytest
 
 from hindsight import normalize as n
-from hindsight.normalize import KeyCollision, OpenfdaDimension, key
+from hindsight.normalize import (
+    KeyCollision,
+    OpenfdaDimension,
+    UnexpectedReportShape,
+    key,
+    split,
+)
 
 
 ASPIRIN = {"brand_name": ["ASPIRIN"], "unii": ["R16CO5Y76E"]}
@@ -20,6 +28,11 @@ IBUPROFEN = {"brand_name": ["ADVIL"], "unii": ["WK2XYI10QM"]}
 @pytest.fixture
 def dimension():
     return OpenfdaDimension()
+
+
+def report(**overrides) -> dict:
+    """A minimal well-formed report. Overrides are the point of each test."""
+    return {"safetyreportid": "1", "receiptdate": "20250101"} | overrides
 
 
 # --- the key is the content -------------------------------------------------
@@ -141,3 +154,203 @@ def test_the_same_block_under_a_shared_key_is_not_a_collision(monkeypatch, dimen
     dimension.add(ASPIRIN)
 
     assert dimension.add(IBUPROFEN)[1] is None
+
+
+# --- split: the report row --------------------------------------------------
+
+
+def test_every_top_level_field_travels_except_patient(dimension):
+    source = report(occurcountry="US", patient={"patientsex": "1"})
+
+    rows = split(source, dimension)
+
+    assert rows.report == {
+        "safetyreportid": "1",
+        "receiptdate": "20250101",
+        "occurcountry": "US",
+        "pt_patientsex": "1",
+    }
+
+
+def test_a_field_nobody_has_seen_before_still_travels(dimension):
+    """The L-005 rule as a test: no keep-list can exist if an invented field
+    arrives intact. `companynumb` was dropped from 89.6% of reports exactly
+    because the column list came from inspecting one record."""
+    source = report(fieldinventedin2031="x", patient={"pt_era_field": "y"})
+
+    rows = split(source, dimension)
+
+    assert rows.report["fieldinventedin2031"] == "x"
+    assert rows.report["pt_pt_era_field"] == "y"
+
+
+def test_a_nested_patient_object_stays_an_object(dimension):
+    """`pt_summary` is an Arrow struct, not a flattened pair of columns and not
+    a JSON string (design.md). Reconstruction is then a straight assignment."""
+    source = report(patient={"summary": {"narrativeincludeclinical": "text"}})
+
+    rows = split(source, dimension)
+
+    assert rows.report["pt_summary"] == {"narrativeincludeclinical": "text"}
+
+
+def test_the_patient_arrays_never_land_in_the_report_row(dimension):
+    source = report(patient={"drug": [{"medicinalproduct": "ASPIRIN"}], "reaction": [{}]})
+
+    rows = split(source, dimension)
+
+    assert "pt_drug" not in rows.report
+    assert "pt_reaction" not in rows.report
+
+
+def test_a_report_without_a_patient_still_produces_its_row(dimension):
+    rows = split(report(), dimension)
+
+    assert rows.report == {"safetyreportid": "1", "receiptdate": "20250101"}
+    assert rows.drugs == []
+    assert rows.reactions == []
+
+
+def test_a_prefixed_patient_field_may_not_overwrite_a_real_top_level_one(dimension):
+    """No such collision exists in the 2026-08-10 export — checked, all 27
+    top-level names, none start with `pt_`. If openFDA ever adds one, the
+    report row would silently carry one value where the source had two."""
+    source = report(pt_patientsex="top level", patient={"patientsex": "1"})
+
+    with pytest.raises(UnexpectedReportShape, match="pt_patientsex"):
+        split(source, dimension)
+
+
+# --- split: drug rows -------------------------------------------------------
+
+
+def test_one_row_per_drug_keyed_and_ordered(dimension):
+    source = report(
+        patient={"drug": [{"medicinalproduct": "ASPIRIN"}, {"medicinalproduct": "ADVIL"}]}
+    )
+
+    rows = split(source, dimension)
+
+    assert rows.drugs == [
+        {"safetyreportid": "1", "seq": 0, "openfda_key": None, "medicinalproduct": "ASPIRIN"},
+        {"safetyreportid": "1", "seq": 1, "openfda_key": None, "medicinalproduct": "ADVIL"},
+    ]
+
+
+def test_seq_is_the_source_position_not_a_counter_over_kept_rows(dimension):
+    """`seq` is what makes the round trip order-preserving. A count of emitted
+    rows would drift the moment anything is ever skipped."""
+    source = report(patient={"drug": [{}, {}, {}]})
+
+    rows = split(source, dimension)
+
+    assert [drug["seq"] for drug in rows.drugs] == [0, 1, 2]
+
+
+def test_the_openfda_block_leaves_the_drug_row_and_becomes_a_key(dimension):
+    source = report(patient={"drug": [{"medicinalproduct": "ASPIRIN", "openfda": ASPIRIN}]})
+
+    rows = split(source, dimension)
+
+    assert "openfda" not in rows.drugs[0]
+    assert rows.drugs[0]["openfda_key"] == key(ASPIRIN)
+
+
+def test_an_absent_block_keys_to_none_and_an_empty_one_does_not(dimension):
+    """The L-005 distinction, at the call site that matters: 507 drug rows in
+    this partition carry `openfda: {}` and 11,128 carry nothing at all."""
+    source = report(patient={"drug": [{}, {"openfda": {}}]})
+
+    rows = split(source, dimension)
+
+    assert rows.drugs[0]["openfda_key"] is None
+    assert rows.drugs[1]["openfda_key"] == key({})
+
+
+def test_a_block_reaches_the_dimension_once_however_many_drugs_cite_it(dimension):
+    source = report(
+        patient={"drug": [{"openfda": ASPIRIN}, {"openfda": ASPIRIN}, {"openfda": IBUPROFEN}]}
+    )
+
+    rows = split(source, dimension)
+
+    assert rows.openfda == [
+        {"openfda_key": key(ASPIRIN)} | ASPIRIN,
+        {"openfda_key": key(IBUPROFEN)} | IBUPROFEN,
+    ]
+
+
+def test_a_block_already_seen_in_an_earlier_report_is_not_emitted_again(dimension):
+    """The dedup is corpus-wide, not per-report — 27× on this partition alone,
+    and the ratio only widens across 1,767 of them."""
+    split(report(patient={"drug": [{"openfda": ASPIRIN}]}), dimension)
+
+    rows = split(report(safetyreportid="2", patient={"drug": [{"openfda": ASPIRIN}]}), dimension)
+
+    assert rows.openfda == []
+    assert rows.drugs[0]["openfda_key"] == key(ASPIRIN)
+
+
+def test_a_report_with_no_drugs_is_not_a_skipped_report(dimension):
+    source = report(patient={"patientsex": "1", "reaction": [{"reactionmeddrapt": "Nausea"}]})
+
+    rows = split(source, dimension)
+
+    assert rows.report["pt_patientsex"] == "1"
+    assert rows.drugs == []
+    assert len(rows.reactions) == 1
+
+
+# --- split: reaction rows ---------------------------------------------------
+
+
+def test_one_row_per_reaction_keyed_and_ordered(dimension):
+    source = report(
+        patient={"reaction": [{"reactionmeddrapt": "Nausea"}, {"reactionmeddrapt": "Rash"}]}
+    )
+
+    rows = split(source, dimension)
+
+    assert rows.reactions == [
+        {"safetyreportid": "1", "seq": 0, "reactionmeddrapt": "Nausea"},
+        {"safetyreportid": "1", "seq": 1, "reactionmeddrapt": "Rash"},
+    ]
+
+
+# --- split: what a malformed report costs -----------------------------------
+
+
+def test_a_report_without_an_id_raises_rather_than_orphaning_its_rows(dimension):
+    """Every report in the export has one — checked, 12,000 of 12,000, all
+    distinct. A None join key would strand that report's drug and reaction rows
+    where only the round-trip test, milestones later, would notice."""
+    with pytest.raises(UnexpectedReportShape, match="safetyreportid"):
+        split({"receiptdate": "20250101"}, dimension)
+
+
+def test_a_patient_that_is_not_an_object_raises(dimension):
+    with pytest.raises(UnexpectedReportShape, match="'patient' should be an object"):
+        split(report(patient="unexpected"), dimension)
+
+
+def test_a_drug_array_that_is_not_an_array_raises_rather_than_being_iterated(dimension):
+    """A string here would enumerate into one row per character, and every one
+    of them would look like a valid drug row downstream. The message has to name
+    the array, not its first element — `drug[0] should be an object` sends
+    whoever reads the log at partition 900 looking at the wrong thing."""
+    with pytest.raises(UnexpectedReportShape, match="'drug' should be an array, found str"):
+        split(report(patient={"drug": "ASPIRIN"}), dimension)
+
+
+def test_a_drug_entry_that_is_not_an_object_raises(dimension):
+    with pytest.raises(UnexpectedReportShape, match=r"'drug'\[0\] should be an object"):
+        split(report(patient={"drug": ["ASPIRIN"]}), dimension)
+
+
+def test_a_source_field_may_not_overwrite_a_column_the_table_defines(dimension):
+    """`seq` is this table's own. A drug field of the same name would replace
+    the position the round trip is rebuilt from."""
+    source = report(patient={"drug": [{"seq": "9"}]})
+
+    with pytest.raises(UnexpectedReportShape, match="seq"):
+        split(source, dimension)

@@ -1,7 +1,7 @@
 # State
 
 **Last Updated:** 2026-08-13
-**Current Work:** M0 — Walking Skeleton. T1–T7 done: repo initialized, dependencies pinned, Makefile skeleton, partition resolver, pinned resumable downloader, streaming report iterator, openfda dimension writer. Next action: **T8** (record splitter).
+**Current Work:** M0 — Walking Skeleton. T1–T8 done: repo initialized, dependencies pinned, Makefile skeleton, partition resolver, pinned resumable downloader, streaming report iterator, openfda dimension writer, record splitter. Next action: **T9** (schema inference + Parquet sink).
 
 ---
 
@@ -235,6 +235,10 @@ Compression is this extreme because nearly every column is low-cardinality and d
 | `openfda` dedup ratio | 27.0× — 60,862 blocks on drug rows collapse to 2,251 | T7, same run |
 | Drug rows per partition, re-measured | 71,990 (L-003's 103,187 came from the dead partition) | T7, same run |
 | `openfda: {}` present but empty | **507 drug rows** — absent is 11,128, and they are not the same | T7, same run |
+| Reaction rows per partition | **44,916** — L-003's 57,664 came from the dead partition | T8, `split` over all 12,000 |
+| Fields lost by `split` | **0** of 12,000 reports, compared key by key at every level | T8, same run |
+| Report row width | 32 columns — 26 top-level (27 less `patient`) + 6 `pt_` | T8, same run |
+| Top-level names starting `pt_` | **none** of 27, so the prefix collides with nothing today | T8, same run |
 
 > ⚠️ Caveat, hardened by **L-006**: per-partition figures come from one partition, `2025q1/drug-event-0001-of-0034` — **which no longer exists.** The 2026-08-10 export chunks 2025q1 into 28 files, not 34. These figures are prior expectations, not reproducible measurements. T6 has since re-measured the report count against `2025q1/0001-of-0028` — 12,000, which happens to match — and T9 re-measures the drug and reaction rows. The corpus-level rows above (1,767 partitions, 111 GiB, 20,692,690 records) were re-verified against the manifest on 2026-08-13 and hold exactly.
 
