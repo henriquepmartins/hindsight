@@ -337,24 +337,62 @@ peak RSS      65 MiB   wall 4.8 s
 **Type unification rules:** everything is `string` unless proven otherwise; `openfda` fields are `list<string>`; nested single objects (`pt_summary`, `primarysource`, `sender`, `receiver`, `reportduplicate`) are **structs**, not flattened and not JSON-stringified (design.md).
 
 **Done when:**
-- [ ] `schema/2025q1-0001.json` is committed and human-readable
-- [ ] Four Parquet files exist, ZSTD-9, under `data/parquet/year=2025/quarter=1/`
-- [ ] Report row count equals the manifest's `records` for this partition — read it from `Partition.records`, do not hardcode 12,000 (the last partition of a quarter is a remainder; `2025q1/0028-of-0028` holds 3,230)
-- [ ] Drug and reaction row counts are **recorded**, not asserted. L-003's 103,187 / 57,664 came from a partition that no longer exists (L-006) — they are prior expectations. Write the measured numbers into STATE.md
-- [ ] A record with a field absent from the schema raises, never silently drops
-- [ ] Compression ratio measured and compared against L-003's 338×. An order-of-magnitude gap means something is wrong; a modest gap is just a different partition
-- [ ] `metrics.json` carries row counts and non-null rates for `drugstartdate`, UNII, `companynumb`
+- [x] `schema/2025q1-0001-of-0028.json` is committed and human-readable — 162 lines, one line per column
+- [x] Parquet files exist, ZSTD-9, under `data/parquet/year=2025/quarter=1/part=0001-of-0028/` — **five, not four** (AD-013)
+- [x] Report row count equals the manifest's `records` for this partition — read it from `Partition.records`, do not hardcode 12,000 (the last partition of a quarter is a remainder; `2025q1/0028-of-0028` holds 3,230)
+- [x] Drug and reaction row counts are **recorded**, not asserted — 71,990 and 44,916, in STATE.md
+- [x] A record with a field absent from the schema raises, never silently drops
+- [x] Compression ratio measured and compared against L-003's 338× — **175×**, gap accounted for in L-003's note
+- [x] `metrics.json` carries row counts and non-null rates for `drugstartdate`, UNII, `companynumb`
+
+**Deviations from the original criteria, and why:**
+
+- **⚠️ Five tables, not four — `reportduplicate` became `report_duplicate` (AD-013, needs a decision).** Pass 1 failed three seconds into the first partition: the field is an object in 1,857 reports and an array in 1,096, and Arrow holds one type per column. design.md had it listed among the nested single objects. It is a repeated child, and it never arrives as an array of length 1 — the XML-to-JSON fingerprint (L-007). A `NULL` `seq` records the bare-object shape so T10 can put it back as an object. `design.md` §Data contracts and `spec.md` P1 §2 still say four tables and are **left untouched**: an acceptance criterion does not get rewritten to match code that already runs. The AD is where the decision goes.
+- **The schema file is `2025q1-0001-of-0028.json`, not `2025q1-0001.json`.** Same stem rule as the pin, so `data/manifest/2025q1-0001-of-0028.json` and `schema/2025q1-0001-of-0028.json` name the same partition the same way. Dropping `-of-0028` would also merge two partitions that re-chunking made different (L-006).
+- **A `part=` level under the quarter.** Every partition writes a file called `report.parquet`; without it the 28 partitions of 2025q1 overwrite each other and leave a corpus that looks complete. Costs nothing at M0's one partition, and DuckDB's `**` glob reads it unchanged.
+- **`metrics.py` is a module design.md's table does not list.** It is P3's artifact and M1 grows it into a quality time series; putting it in `write.py` would make that module about two things. Flagged rather than assumed.
+- **Coverage is measured by querying the Parquet, not by counting during the write.** A counter measures the loop; a query measures the artifact, and the artifact is what the claim is about. It also means the row counts in `metrics.json` are an independent check on `Written.rows` rather than a copy of it.
+- **The columns the pipeline writes itself are not inferred.** `safetyreportid`, `seq`, `openfda_key` have declared types, and observation has to agree or it raises. Without this, a partition whose duplicates all arrived as bare objects has a null `seq` on every row, and inference resolves it to `string` there and `int64` in the next partition — a column type that depends on which partition you read, which is the drift the schema file exists to detect.
+- **A type conflict raises; it does not record a drift event.** spec.md's edge case asks for a recorded drift event, and M0 has nowhere to record one — drift detection is M1, and its input is the diff between two of these schema files. Raising is the loud version of the same rule. The one conflict in the corpus was found this way and is now a table.
+- **`int64` and `double` are not widened into each other.** Every schema bug this project has had came from a quiet resolution. No FAERS scalar is a number today (19,648,458 measured, all strings), so a conflict here is news.
+- **A struct that is empty in every record raises.** Parquet cannot write a struct with no child fields — measured, `ArrowNotImplementedError`. The convenient answer is to drop the column, which is a data-loss decision that inference does not get to make.
+- **`--reinfer` exists.** Pass 1 is skipped when the schema file is present, because the file *is* the schema — recomputing it silently would make the committed artifact decorative. The flag is how you deliberately re-derive it.
+- **Three small additions to modules T5–T8 wrote:** `Partition.stem` (the pin and the schema file name the partition by one rule, not two), `RowSet.by_table()` plus the table-name constants (the names were already inline in `normalize.py`; now every module reads them from one place), and `stream.json_bytes()` (the compression ratio's denominator, read from the zip's central directory rather than by decompressing).
+- Covered by `tests/test_schema.py` and `tests/test_write.py` — **130 cases total, no network, 0.3 s.** Checked by mutation rather than by assertion count: nine ways of breaking the two modules were applied one at a time (skip `enforce`, never flush mid-loop, keep the `.part` file on failure, stop pinning `seq`, let a null set the type, leave `reportduplicate` in the report row, give the bare object `seq=0`, unsorted field names, drop the final flush). Eight turned the suite red immediately. **The ninth did not:** disabling the mid-loop flush wrote identical output in one row group — the whole flat-memory property, silently gone. `test_a_partition_leaves_in_batches_rather_than_all_at_the_end` was added for it, and it is the one test here that would have caught nothing about correctness and everything about the design.
 
 **Verify:**
 ```bash
-uv run hindsight ingest 2025q1/0001-of-0028
-du -sh data/parquet/                                    # ≈ 3.5 MB
+uv run hindsight ingest 2025q1/0001-of-0028 --reinfer
 uv run python -c "
 import duckdb
-for t in ['report','report_drug','report_reaction','dim_openfda']:
+for t in ['report','report_drug','report_reaction','report_duplicate','dim_openfda']:
     print(t, duckdb.sql(f\"SELECT count(*) FROM 'data/parquet/**/{t}.parquet'\").fetchone()[0])"
 ```
-Expected: `12000 / 103187 / 57664 / <n>`. **Record that `<n>`** — it settles the 2,537-vs-1,491 contradiction flagged in STATE.md L-003.
+
+```
+cached 2025q1/0001-of-0028 (162,319,793 bytes)
+pass 1: inferring the schema from every record
+schema schema/2025q1-0001-of-0028.json (inferred)
+pass 2: writing parquet against the frozen schema
+metrics data/parquet/year=2025/quarter=1/part=0001-of-0028/metrics.json
+partition          2025q1/0001-of-0028 (export 2026-08-10)
+report                 12,000
+report_drug            71,990
+report_reaction        44,916
+report_duplicate        7,872
+dim_openfda             2,251
+distinct openfda        2,251
+parquet                  4.62 MB   175.0x vs json   35.2x vs zip
+companynumb             87.6%
+drugstartdate           22.5%
+unii                    82.9%
+        9.55 real         7.97 user         0.23 sys
+           175374336  maximum resident set size
+
+report 12000 · report_drug 71990 · report_reaction 44916 · report_duplicate 7872 · dim_openfda 2251
+```
+
+Second run, against the committed schema rather than re-inferring it: **5.2 s**, pass 1 skipped, identical output. `report_duplicate`'s 7,872 is 1,857 bare objects plus 6,015 array entries — the same split the recon pass counted before any of this was written, which is what says the table did not invent or lose a row.
 
 **Commit:** `feat(write): explicit-schema Parquet sink`
 

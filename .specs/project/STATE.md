@@ -1,7 +1,7 @@
 # State
 
 **Last Updated:** 2026-08-13
-**Current Work:** M0 — Walking Skeleton. T1–T8 done: repo initialized, dependencies pinned, Makefile skeleton, partition resolver, pinned resumable downloader, streaming report iterator, openfda dimension writer, record splitter. Next action: **T9** (schema inference + Parquet sink).
+**Current Work:** M0 — Walking Skeleton. T1–T9 done: repo initialized, dependencies pinned, Makefile skeleton, partition resolver, pinned resumable downloader, streaming report iterator, openfda dimension writer, record splitter, schema inference + Parquet sink. Next action: **T10** (round-trip reconstructor) — but read **AD-013 first**, it changes the table count T10 reconstructs from and is waiting on a decision.
 
 ---
 
@@ -91,6 +91,21 @@
 **Trade-off:** HF is git+LFS, not an S3 API. A scheduled incremental pipeline means many commits, and history needs occasional squashing. HF public storage is "best-effort" and conditioned on the dataset being genuinely reusable.
 **Impact:** Partially supersedes AD-003's R2 choice for the lake layer. AD-003's core reasoning — columnar not Postgres — is unaffected.
 
+### AD-013: `reportduplicate` becomes a fifth table (2026-08-13) — ⚠️ PROPOSED, needs a decision
+
+**Decision:** `reportduplicate` leaves the report row and becomes `report_duplicate(safetyreportid, seq, duplicatenumb, duplicatesource)`. A `seq` of `NULL` records that the source carried a bare object rather than an array. Five tables, not four.
+
+**Reason:** it is not a single nested object, which is what design.md assumed when it listed `reportduplicate` among the structs. It arrives **both** ways — 1,857 bare objects and 1,096 arrays in one partition (L-007) — and Arrow holds one type per column, so the four-table model has no column that can hold it. It is a repeated child, exactly like `drug` and `reaction`, and those already get a table with a `seq`.
+
+**Trade-off:** the round trip has one more table to reassemble, and `seq IS NULL` is a contract T10 has to honour rather than infer. Against that, `duplicatenumb` is the field M2's deduplication joins on, so a table is where it wants to be anyway — a repeated child kept in a column is something every later query has to unnest first.
+
+**Alternatives rejected:**
+- *Promote every bare object to a one-element list.* Cheapest, and it silently rewrites the source's shape. The round trip would then only be identical after an undeclared normalization, which is precisely the claim this project is not willing to soften.
+- *Declare "one row means it was an object" and store no marker.* Reproduces this partition exactly, because openFDA never emits an array of one — measured. It rests on a rule nobody guarantees, over a corpus spanning 2004–2025 of which one export has been read.
+- *Two columns, a struct and a list.* Lossless, and it publishes the source's XML-to-JSON artifact as permanent schema, with every M2 query having to read both.
+
+**Impact:** implemented in T9 and **not yet reflected in the specs.** `design.md` §Data contracts still says four tables and `spec.md` P1 §2 still lists four; both are left untouched on purpose — rewriting an acceptance criterion to match code that already runs is the drift this project logs rather than performs. If the decision holds, those two lines change with it. T10 and T11 are the tasks that depend on it, which is why the decision is due now.
+
 ---
 
 ## Active Blockers
@@ -165,7 +180,9 @@ Round 3: **12,000 / 12,000 byte-identical. Zero mismatches.**
 
 Compression is this extreme because nearly every column is low-cardinality and dictionary-encodes to almost nothing: only 4,721 distinct MedDRA terms across 57,664 reactions, dates repeat heavily within a quarter, and the `openfda` block (92.7% of bytes) collapses from 103,187 inline copies to a few thousand dimension rows.
 
-> ✅ **Resolved by T7:** the distinct-`openfda` count is **2,251** for `2025q1/0001-of-0028`, measured by running `OpenfdaDimension` over all 12,000 reports. Neither recorded value was right (2,537 above, 1,491 originally here), which is what the missing spike output already implied. The partition also holds 71,990 drug rows against L-003's 103,187 — a different partition, not a regression, and T9 records the rest. Everything else in L-003 was recorded once and stands.
+> ✅ **Resolved by T7, closed by T9:** the distinct-`openfda` count is **2,251** for `2025q1/0001-of-0028`, measured by running `OpenfdaDimension` over all 12,000 reports. Neither recorded value was right (2,537 above, 1,491 originally here), which is what the missing spike output already implied. The partition holds 71,990 drug rows and 44,916 reaction rows against L-003's 103,187 / 57,664 — a different partition, not a regression.
+>
+> **The 338× does not reproduce either: T9 measures 175×** (4.62 MB, ZSTD-9, lossless). Not an order of magnitude, so nothing here says the pipeline is wrong, and the gap is now accounted for rather than waved at. Row-group size explains ~12% of it (4.06 MB in one group, 199×) and `dim_openfda` is 55% of what remains — 2.53 MB for 2,251 blocks, which are lists of brand names, NDC codes and SPL ids that dictionary-encode badly because they genuinely do not repeat. The rest is the dead partition: it held 43% more drug rows and 1.2 GB of JSON against this one's 807 MB, so its ratio was taken on a different, denser file. **Publish 175×, not 338×.** The corpus projection barely moves, because the two halves scale differently: the fact tables are 2.09 MB of the 4.62 and scale linearly (~3.7 GB over 1,767 partitions), while `dim_openfda` converges — the same products recur in every quarter, so it is a fixed cost paid once, not 2.53 MB × 1,767. L-003's ~3.4 GB is still the right order of magnitude. One partition has been measured; T19 is the second.
 
 **Verified not to be silent data loss:** row counts match the source exactly (12,000 / 103,187), all 21+15+5 columns survive, and a join+group-by across the full partition returns 322,185 distinct drug–event pairs in **0.048s**.
 
@@ -198,6 +215,18 @@ Compression is this extreme because nearly every column is low-cardinality and d
 **Also corrected:** design.md's open question said openFDA starts at 2004q3. It starts at **2004q1** — 91 buckets, including a non-quarter `all_other/` bucket of 4 partitions for reports that could not be dated. A partition-id pattern requiring `YYYYqN` silently drops those four.
 
 **Prevents:** building M1's crawler on the assumption that a partition URL is a stable identity, and publishing a compression ratio traceable to a file nobody can fetch again.
+
+### L-007: openFDA serializes a repeated child two different ways, and only one field does it
+
+**Context:** T9's pass 1 unifies the type of every field over all 12,000 records. It failed on the first partition, three seconds in.
+
+**Problem:** `report.reportduplicate` is an object in 1,857 reports and an array in 1,096. Arrow holds one type per column, so there is no schema that can hold both — and design.md had listed the field among the nested single objects, alongside `primarysource` and `sender`.
+
+**Solution:** measured the whole surface before deciding anything. Over the partition: **120 distinct field paths, exactly one with more than one JSON type.** The shape is not random — `reportduplicate` is an array only when there are 2+ entries, and **never once an array of length 1** across all 1,096. That is the signature of an XML-to-JSON conversion: FAERS is ICH E2B XML, a repeated element that occurs once has no array to be in, and the converter emits a bare object. So the field is a repeated child that looks like a struct, and it becomes a table (AD-013).
+
+Two more facts fell out of the same pass: `patient.drug` and `patient.reaction` are present, as arrays, in **12,000 of 12,000** reports, and **no array anywhere in the partition is empty**. An empty array would be indistinguishable from an absent field under the current model, since both produce zero child rows — a real hole, and one nothing in this export can trigger. T11 is where it would surface.
+
+**Prevents:** a schema conflict at partition 900 of a 1,767-partition crawl, and the two shortcuts that were available here. Promoting the bare object to a one-element list would have cost nothing today and made "byte-identical" mean "identical after a normalization we did not mention". Deriving the shape from the row count would have worked on every partition of this export and on no partition anyone has checked.
 
 ### L-002: Always measure before believing a size number
 
@@ -239,8 +268,22 @@ Compression is this extreme because nearly every column is low-cardinality and d
 | Fields lost by `split` | **0** of 12,000 reports, compared key by key at every level | T8, same run |
 | Report row width | 32 columns — 26 top-level (27 less `patient`) + 6 `pt_` | T8, same run |
 | Top-level names starting `pt_` | **none** of 27, so the prefix collides with nothing today | T8, same run |
+| **Parquet, whole partition, ZSTD-9** | **4,615,236 B (4.62 MB)** across 5 files | T9, `hindsight ingest` |
+| **Compression vs raw JSON** | **175×** (807,482,752 → 4,615,236) | T9, same run |
+| Compression vs source zip | 35.2× (162,319,793 → 4,615,236) | T9, same run |
+| `dim_openfda` share of the output | **2.53 MB of 4.62 MB — 55%**, from 2,251 rows | T9, per-file sizes |
+| Row-group size is worth ~12% | 12,000 reports/group → 4.06 MB (199×) vs 2,000/group → 4.62 MB (175×) | T9, same rows written twice |
+| `report_duplicate` rows | **7,872** = 1,857 bare objects + 6,015 array entries | T9, `split` over all 12,000 |
+| Field paths with more than one JSON type | **1 of 120** — `reportduplicate` only (L-007) | T9, typed every value |
+| `patient.drug` / `patient.reaction` present | 12,000 of 12,000, always arrays, **never empty** | T9, same pass |
+| Report row width | **31 columns** — 32 less `reportduplicate`, now its own table | T9, schema file |
+| `companynumb` coverage | **87.6%** of reports (L-004's 89.6% came from the dead partition) | T9, `metrics.json` |
+| `drugstartdate` coverage | **22.5%** of drug rows (L-004 said 20.5%) | T9, same file |
+| UNII coverage | **82.9%** of drug rows, by join (L-004 said 83.3%) | T9, same file |
+| Peak RSS, both passes + metrics | **175 MB** against a 500 MB ceiling | T9, `/usr/bin/time -l` |
+| Wall time, one partition | **9.5 s** cold, **5.2 s** against the committed schema | T9, same run |
 
-> ⚠️ Caveat, hardened by **L-006**: per-partition figures come from one partition, `2025q1/drug-event-0001-of-0034` — **which no longer exists.** The 2026-08-10 export chunks 2025q1 into 28 files, not 34. These figures are prior expectations, not reproducible measurements. T6 has since re-measured the report count against `2025q1/0001-of-0028` — 12,000, which happens to match — and T9 re-measures the drug and reaction rows. The corpus-level rows above (1,767 partitions, 111 GiB, 20,692,690 records) were re-verified against the manifest on 2026-08-13 and hold exactly.
+> ⚠️ Caveat, hardened by **L-006**: per-partition figures come from one partition, `2025q1/drug-event-0001-of-0034` — **which no longer exists.** The 2026-08-10 export chunks 2025q1 into 28 files, not 34. These figures are prior expectations, not reproducible measurements. **T6 through T9 have since re-measured every one of them** against `2025q1/0001-of-0028`: reports 12,000 (matches), drug rows 71,990 and reaction rows 44,916 (both lower), compression 175× rather than 338×. Where the two disagree, the T6–T9 row is the measurement and the spike row is history. The corpus-level rows above (1,767 partitions, 111 GiB, 20,692,690 records) were re-verified against the manifest on 2026-08-13 and hold exactly.
 
 ---
 
@@ -260,7 +303,10 @@ Compression is this extreme because nearly every column is low-cardinality and d
 - [ ] Decide the Bayesian shrinkage estimator (BCPNN vs. gamma-Poisson) once M3 begins
 - [x] ~~Choose Quarto vs. Evidence.dev~~ — Quarto, AD-009
 - [ ] Confirm remote storage target at M1 start (AD-012 — HF Datasets front-runner)
-- [ ] Record the distinct-`openfda` count during T9 and delete the ⚠️ note in L-003
+- [x] ~~Record the distinct-`openfda` count during T9~~ — 2,251, and L-003's numbers are now annotated rather than trusted
+- [ ] **Decide AD-013** (`reportduplicate` as a fifth table) — T10 and T11 are blocked on the answer, not on the code
+- [ ] Empty arrays are indistinguishable from absent fields (L-007). Nothing in this export triggers it; decide before M1 crawls 1,767 partitions
+- [ ] Row-group size: 2,000 costs ~12% of the output size (T9). T18 owns the trade against peak RSS
 - [ ] Add `ijson` to PROJECT.md's key dependencies — required by the streaming design, currently missing
 
 ---
