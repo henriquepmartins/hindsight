@@ -1,7 +1,7 @@
 # State
 
 **Last Updated:** 2026-08-13
-**Current Work:** M0 — Walking Skeleton. T1–T5 done: repo initialized, dependencies pinned, Makefile skeleton, partition resolver, pinned resumable downloader. Next action: **T6** (streaming report iterator).
+**Current Work:** M0 — Walking Skeleton. T1–T6 done: repo initialized, dependencies pinned, Makefile skeleton, partition resolver, pinned resumable downloader, streaming report iterator. Next action: **T7** (openfda dimension writer).
 
 ---
 
@@ -225,8 +225,14 @@ Compression is this extreme because nearly every column is low-cardinality and d
 | `2025q1/0001-of-0028` | 162,319,793 bytes, sha256 `efe6edcc60e2…` | T5, downloaded and pinned 2026-08-13 |
 | Manifest `size_mb` is **MiB** | 162,319,793 B vs a stated `154.80` | T5, same download |
 | openFDA throughput, re-measured | 11.5 MB/s (162 MB in 14.1 s) | T5, `time hindsight fetch` |
+| Uncompressed partition JSON | 807,482,752 B — **not the 1.2 GB** design.md assumed. Zip ratio 4.98× | T6, `ZipFile.infolist()` |
+| Reports per partition, re-measured | 12,000, on a partition that still exists | T6, streamed and counted against `Partition.records` |
+| Peak RSS, full streaming pass | **47.7 MB** (ceiling 500 MB, design.md predicted < 200 MB) | T6, `/usr/bin/time -l` |
+| Full-partition parse time | 2.1 s for 12,000 reports; first report in 2.8 ms | T6, same run |
+| Every FAERS scalar is a string | 19,648,458 scalars in the partition, zero non-`str` | T6, walked every value |
+| Smallest partition in the export | 324 records (`2024q4/0029-of-0029`); none report zero | T6, manifest, all 1,767 |
 
-> ⚠️ Caveat, hardened by **L-006**: per-partition figures come from one partition, `2025q1/drug-event-0001-of-0034` — **which no longer exists.** The 2026-08-10 export chunks 2025q1 into 28 files, not 34. These figures are prior expectations, not reproducible measurements; T9 re-measures against `2025q1/0001-of-0028`. The corpus-level rows above (1,767 partitions, 111 GiB, 20,692,690 records) were re-verified against the manifest on 2026-08-13 and hold exactly.
+> ⚠️ Caveat, hardened by **L-006**: per-partition figures come from one partition, `2025q1/drug-event-0001-of-0034` — **which no longer exists.** The 2026-08-10 export chunks 2025q1 into 28 files, not 34. These figures are prior expectations, not reproducible measurements. T6 has since re-measured the report count against `2025q1/0001-of-0028` — 12,000, which happens to match — and T9 re-measures the drug and reaction rows. The corpus-level rows above (1,767 partitions, 111 GiB, 20,692,690 records) were re-verified against the manifest on 2026-08-13 and hold exactly.
 
 ---
 

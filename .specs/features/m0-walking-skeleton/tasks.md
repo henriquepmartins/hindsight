@@ -181,10 +181,17 @@ The cached run is 1.1 s rather than the "< 1 s" first written here, and the reas
 **Watch for:** `ijson.items(f, 'results.item')` is the incantation — `'results.item'` means "each element of the results array," not a field called `item`.
 
 **Done when:**
-- [ ] Yields exactly `Partition.records` dicts — read the count from the manifest, do not hardcode 12,000 (L-006)
-- [ ] Nothing is extracted to disk (check `data/` before and after)
-- [ ] Peak RSS stays under 500 MB across a full pass
-- [ ] Works as a generator — `next(iter_reports(p))` returns immediately, without reading the whole file
+- [x] Yields exactly `Partition.records` dicts — read the count from the manifest, do not hardcode 12,000 (L-006)
+- [x] Nothing is extracted to disk (check `data/` before and after)
+- [x] Peak RSS stays under 500 MB across a full pass
+- [x] Works as a generator — `next(iter_reports(p))` returns immediately, without reading the whole file
+
+**Deviations from the original criteria, and why:**
+- **`use_float=True` on `ijson.items`.** ijson yields `decimal.Decimal` for JSON numbers by default, and T7's `json.dumps` content hash cannot serialize one. Measured: all 19,648,458 scalars in this partition are strings, so it changes nothing today — it is there for the 2005-era partition in T19, where the guarantee that matters is "whatever `json.load` would have returned."
+- **An absent or empty `results` array raises instead of yielding zero reports.** Silently streaming nothing is the failure mode where openFDA renames a key, all 1,767 partitions ingest cleanly, and the corpus is empty. Checked rather than assumed: no partition in the 2026-08-10 export reports zero records — the smallest, `2024q4/0029-of-0029`, holds 324 — so the guard cannot fire on real data.
+- **The count is not checked inside `iter_reports`.** The signature takes a path, not a `Partition`; comparing against `Partition.records` belongs to T9's ingest, which is where a mismatch can be acted on. Verified externally here instead (output below).
+- **CRC-32 verification came free.** `ZipFile.open()` checks the member's CRC on the read that reaches EOF, so a full pass over a rotted archive raises rather than ending the stream early. Pinned by a test that flips a byte inside a stored member.
+- Covered by `tests/test_stream.py` — 13 cases, no network, 0.02 s.
 
 **Verify:**
 ```bash
@@ -193,7 +200,17 @@ from hindsight.stream import iter_reports
 print(sum(1 for _ in iter_reports('data/raw/2025q1-0001-of-0028.zip')))
 " 2>&1 | grep -E "12000|maximum resident"
 ```
-Expected: `12000`, and maximum resident set size well under 500 MB (design.md predicts < 200 MB).
+Measured: `12000`, peak RSS **47.7 MB**, full pass in **2.1 s** — a quarter of design.md's < 200 MB prediction, a tenth of the spec ceiling. The first report arrives in **2.8 ms**, which is the generator property stated as a number rather than asserted.
+
+```bash
+uv run pytest tests/test_stream.py -q          # 13 passed, no network, 0.02 s
+uv run python -c "
+from hindsight.manifest import resolve
+from hindsight.stream import iter_reports
+p = resolve('2025q1/0001-of-0028')
+n = sum(1 for _ in iter_reports('data/raw/2025q1-0001-of-0028.zip'))
+print(p.records, n, n == p.records)"   # 12000 12000 True
+```
 
 **Commit:** `feat(stream): incremental report iterator over zipped JSON`
 
