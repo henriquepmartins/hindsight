@@ -120,12 +120,19 @@ Note: `polars` is deliberately left out (design.md). Add it when a transform nee
 - `records: int` added. Free from the manifest, and it removes a hardcoded assumption: not every partition holds 12,000 reports (`2025q1/0028-of-0028` holds 3,230).
 - `export_date` is a `datetime.date`, not a string. M1 orders exports to detect change, and `"2026-8-9" > "2026-08-10"` as strings.
 - The partition id is derived from the download URL, since the manifest carries no id of its own. The pattern must not require `YYYYqN` — openFDA publishes a non-quarter `all_other/` bucket (L-006).
+- `load_export() -> Export` added as the primary entry point; `resolve` is now a one-partition convenience over it. Measured: the manifest is 590 KB and lists all 1,767 partitions, so resolving per id would cost M1 ~1 GB of redundant transfer. The real reason is L-006 though — partitions resolved minutes apart can carry two different `export_date`s, and an `Export` makes one date per run structural instead of a rule someone has to remember.
+- Covered by `tests/test_manifest.py` — 21 cases, no network, 0.03 s. The Verify block below needs the live endpoint, so CI (T16) could not otherwise reach the failure paths M1 depends on.
 
 **Verify:**
 ```bash
-uv run python -c "from hindsight.manifest import resolve; print(resolve('2025q1/0001-of-0028'))"
+uv run pytest tests/test_manifest.py -q     # 21 passed, no network
+uv run python -c "
+from hindsight.manifest import resolve, load_export
+print(resolve('2025q1/0001-of-0028'))
+e = load_export()
+print(len(e.partitions), e.export_date, sum(p.records for p in e.partitions.values()))"
 ```
-Expected: a `Partition` with a real URL and an export date matching STATE.md's verified fact (2026-08-10 or later).
+Expected: a `Partition` with a real URL and an export date matching STATE.md's verified fact (2026-08-10 or later), then `1767 2026-08-10 20692690` — the corpus-level facts, re-derived in one fetch.
 
 **Commit:** `feat(manifest): resolve openFDA partitions from download.json`
 
