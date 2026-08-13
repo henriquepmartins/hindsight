@@ -1,7 +1,7 @@
 # State
 
 **Last Updated:** 2026-08-13
-**Current Work:** M0 — Walking Skeleton. T1–T10 done: repo initialized, dependencies pinned, Makefile skeleton, partition resolver, pinned resumable downloader, streaming report iterator, openfda dimension writer, record splitter, schema inference + Parquet sink, round-trip reconstructor. **AD-013 is decided** — five tables, and a null `seq` on `report_duplicate` means the source carried a bare object. **The round trip closes: 12,000 / 12,000 byte-identical from Parquet.** Next action: **T11** (round-trip test), which owns the memory question T10 opened — see the RSS row below.
+**Current Work:** M0 — Walking Skeleton. T1–T11 done: repo initialized, dependencies pinned, Makefile skeleton, partition resolver, pinned resumable downloader, streaming report iterator, openfda dimension writer, record splitter, schema inference + Parquet sink, round-trip reconstructor, round-trip test. **AD-013 is decided** — five tables, and a null `seq` on `report_duplicate` means the source carried a bare object. **The round trip closes and is now defended: 12,000 / 12,000 byte-identical, plus 13 tests over a committed 100-report fixture that CI can run without the partition.** Phase 3, the core of M0, is finished. Next action: **T12** (MedDRA exclusion list) — pure data curation, unblocked since T2, and the only genuinely parallel task in M0.
 
 ---
 
@@ -304,6 +304,11 @@ The measurement does not transfer. Whether an export carries explicit nulls is a
 | `Tables.load` memory | **266 MB** for a 4.62 MB Parquet partition — peak 354.7 MB of a 500 MB ceiling | T10, `ru_maxrss` before and after |
 | Max records in any partition | **12,000**; 1,676 of 1,767 hold exactly that, none more | T10, manifest, all 1,767 |
 | `report_duplicate` groups | **2,953** reports = 1,857 bare objects + 1,096 arrays | T10, matches L-007's recon count |
+| Reports with **no drugs** | **0** of 12,000 — also 0 with no reactions, 0 with an empty array anywhere | T11, every report tested for each shape |
+| Fixture cost in the repo | 4,564 KB on disk, **1,370 KB stored** — git zlib-compresses blobs, so gzipping it saves nothing | T11, `git hash-object` then the loose object's size |
+| Fast suite | **143 tests, 0.69 s**, no network, no partition on disk | T11, `uv run pytest -q` |
+| Slow suite, whole partition | 12,000/12,000 byte-identical, **23.6 s**, peak RSS **373 MB** of 500 | T11, `uv run pytest -m slow` |
+| Cost of re-asserting the null precondition | 23.6 s vs T10's 7.4 s for the same reconstruction | T11, the difference is `explicit_nulls` per report (L-008) |
 
 > ⚠️ Caveat, hardened by **L-006**: per-partition figures come from one partition, `2025q1/drug-event-0001-of-0034` — **which no longer exists.** The 2026-08-10 export chunks 2025q1 into 28 files, not 34. These figures are prior expectations, not reproducible measurements. **T6 through T9 have since re-measured every one of them** against `2025q1/0001-of-0028`: reports 12,000 (matches), drug rows 71,990 and reaction rows 44,916 (both lower), compression 175× rather than 338×. Where the two disagree, the T6–T9 row is the measurement and the spike row is history. The corpus-level rows above (1,767 partitions, 111 GiB, 20,692,690 records) were re-verified against the manifest on 2026-08-13 and hold exactly.
 
@@ -327,10 +332,10 @@ The measurement does not transfer. Whether an export carries explicit nulls is a
 - [ ] Confirm remote storage target at M1 start (AD-012 — HF Datasets front-runner)
 - [x] ~~Record the distinct-`openfda` count during T9~~ — 2,251, and L-003's numbers are now annotated rather than trusted
 - [x] ~~**Decide AD-013** (`reportduplicate` as a fifth table)~~ — accepted 2026-08-13. Five tables, `seq IS NULL` is the bare-object marker, specs updated to match
-- [ ] Empty arrays are indistinguishable from absent fields (L-007). Nothing in this export triggers it; decide before M1 crawls 1,767 partitions
+- [ ] Empty arrays are indistinguishable from absent fields (L-007). **T11 re-measured: 0 empty arrays anywhere, and 0 reports without drugs or without reactions**, so the hole still has no known instance. Decide before M1 crawls 1,767 partitions — the reconstruction currently rebuilds the absent version
 - [ ] Row-group size: 2,000 costs ~12% of the output size (T9). T18 owns the trade against peak RSS
-- [ ] **`Tables.load` holds a whole partition in Python dicts — 266 MB for 4.62 MB of Parquet (T10).** Fine at 354 MB peak against the 500 MB ceiling, thin on a denser partition. **T11 decides:** the fixture test never loads one, and the slow test could stream in `safetyreportid` order instead of indexing everything
-- [ ] T11 must assert "zero explicit nulls" per partition rather than inherit T10's measurement (L-008)
+- [x] ~~**`Tables.load` holds a whole partition in Python dicts** — 266 MB for 4.62 MB of Parquet (T10)~~ — T11 kept it. Measured 373 MB peak against the 500 MB ceiling; streaming in `safetyreportid` order would trade that headroom for a sort nothing needs. CI never loads a partition. **Revisit at M1** if a denser partition gets close
+- [x] ~~T11 must assert "zero explicit nulls" per partition rather than inherit T10's measurement (L-008)~~ — done, and it is what makes the round-trip comparison one-sided
 - [ ] Add `ijson` to PROJECT.md's key dependencies — required by the streaming design, currently missing
 
 ---

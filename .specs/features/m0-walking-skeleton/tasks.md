@@ -478,17 +478,86 @@ The 2,953 duplicate groups are 1,857 bare objects plus 1,096 arrays — the spli
 **Concept:** *Fixtures and the CI contract.* The full partition is 246 MB — CI cannot download it on every push. A committed fixture makes the test fast, hermetic, and deterministic. Choosing the fixture is the real skill: 100 random reports won't cover the edge cases, so deliberately include reports with `openfda: {}`, with no drugs, and with `patient.summary` present.
 
 **Done when:**
-- [ ] `pytest` passes on the fixture
-- [ ] A separate slow-marked test does all 12,000 locally and reports `12000/12000`
-- [ ] Failure output names the `safetyreportid` and the differing keys — not just `assert False`
-- [ ] Deliberately breaking T7's empty-dict rule makes it fail, and the message points at the cause
+- [x] `pytest` passes on the fixture
+- [x] A separate slow-marked test does all 12,000 locally and reports `12000/12000`
+- [x] Failure output names the `safetyreportid` and the differing keys — not just `assert False`
+- [x] Deliberately breaking T7's empty-dict rule makes it fail, and the message points at the cause
+
+**Deviations from the original criteria, and why:**
+
+- **The comparison is one-sided: the source is never normalized.** The spike stripped nulls from *both* documents before comparing, and the task asked to keep that helper and document why it is legitimate. Keeping it as-is was the wrong answer. Any normalization applied to both sides of an equality can only ever make it pass, so the round trip would have been partly proving itself. Since the source carries zero explicit nulls — measured, T10 — stripping it is a no-op, and the comparison can be against the **raw source**. What was a shared normalization is now `test_the_source_carries_no_explicit_nulls`, a precondition that goes red on the export where it stops holding, instead of a helper that quietly keeps the test green there. This is L-008 and it is the main thing that changed in this task.
+- **The fixture cannot contain a report with no drugs, because none exists.** The criterion asks to deliberately include one. Measured over all 12,000: **0 reports without drugs, 0 without reactions, 0 with an empty array anywhere.** L-007 saw this from the other side. The shape is covered by T8's unit tests on synthetic reports, which is where it belongs — inventing a report for the fixture would make the fixture a thing this project wrote rather than a thing openFDA sent.
+- **`sample_100.json` is committed raw, not gzipped.** 4,564 KB looked too big until it was measured: git zlib-compresses blobs, so the repo carries **1,370 KB** either way. Gzipping would have saved nothing and cost the ability to read the file. The 4× ratio is low for JSON because most of the bytes are `openfda` NDC and SPL identifiers, which genuinely do not repeat.
+- **The fixture's recipe is a test, not a comment.** `test_the_fixture_covers_the_shapes_it_was_chosen_for` asserts the counts. A fixture regenerated against a 2005 partition could pass every round-trip assertion while covering none of the cases that ever broke this project, and the failure would look like success.
+- **Both paths are tested, not one.** In-memory rows prove `reconstruct` inverts `split`; a real Parquet round trip through `tmp_path` proves nothing was lost between them. Only the second one can catch a schema that drops a column, which is L-005 with better paperwork. 100 reports make it cheap enough for CI.
+- **The L-005 bug is simulated in the tables as a standing test**, on top of the manual break the Verify block asks for. A one-time manual check that nobody repeats is not a regression test.
+- **`pyproject.toml` gains `[tool.pytest.ini_options]`.** `-m slow` needed the marker registered, and `addopts = "-m 'not slow'"` makes the bare `pytest` the run CI can afford. Not in the task's file list; without it the task's own Verify block emits a warning and the default run reaches for a 155 MB partition.
+- **The slow test re-asserts "zero explicit nulls" per report rather than inheriting T10's number.** It is a property of an export, not of the format, and one export of 91 buckets has been read. It costs 23.6 s against T10's 7.4 s for the same reconstruction — that gap *is* the price of not inheriting, paid once per local run.
+- **Three guard tests beyond the criteria** — a `seq` gap, a duplicate recorded as both shapes at once, a drug pointing at a missing block. Each is a `BrokenTables` path T10 wrote and nothing exercised.
+- **`Tables.load` stays as-is for the slow test.** T10 left the memory question here. Measured: **373 MB peak against the 500 MB ceiling**, and streaming in `safetyreportid` order would trade that headroom for a sort nothing currently needs. Revisit at M1 if a denser partition gets close; the fixture path never loads a partition at all, so CI is unaffected either way.
 
 **Verify:**
-```bash
-uv run pytest tests/test_roundtrip.py -v          # fast, fixture
-uv run pytest -m slow                             # full partition, 12000/12000
+
 ```
-Then break `if o is not None` → `if o`, re-run, confirm it goes red. Revert.
+$ uv run pytest tests/test_roundtrip.py -v
+collected 14 items / 1 deselected / 13 selected
+
+test_the_source_carries_no_explicit_nulls PASSED
+test_the_fixture_covers_the_shapes_it_was_chosen_for PASSED
+test_the_fixture_needs_no_network_and_no_partition PASSED
+test_every_fixture_report_rebuilds_identically PASSED
+test_drug_order_survives PASSED
+test_an_empty_openfda_comes_back_as_an_empty_object PASSED
+test_the_two_duplicate_shapes_come_back_as_they_arrived PASSED
+test_the_fixture_rebuilds_from_parquet PASSED
+test_collapsing_empty_openfda_into_absent_is_caught PASSED
+test_an_unknown_report_id_says_so PASSED
+test_a_gap_in_seq_is_not_quietly_shortened PASSED
+test_a_duplicate_that_is_both_shapes_at_once_raises PASSED
+test_a_drug_pointing_at_a_missing_block_raises PASSED
+
+13 passed, 1 deselected in 0.71s
+
+$ uv run pytest -q                      # the whole suite, no network, no partition
+143 passed, 1 deselected in 0.69s
+
+$ uv run pytest -m slow -q -s
+12,000/12,000 byte-identical
+1 passed, 143 deselected in 23.58s
+       23.71 real   372,948,992 maximum resident set size
+```
+
+Then the break the task asks for — `if block is None` → `if not block` in `OpenfdaDimension.add`:
+
+```
+8 failed, 135 passed, 1 deselected in 0.54s
+
+FAILED tests/test_normalize.py::test_every_distinct_block_is_emitted
+FAILED tests/test_normalize.py::test_a_truncation_collision_raises_rather_than_merging
+FAILED tests/test_normalize.py::test_an_absent_block_keys_to_none_and_an_empty_one_does_not
+FAILED tests/test_roundtrip.py::test_every_fixture_report_rebuilds_identically
+FAILED tests/test_roundtrip.py::test_drug_order_survives
+FAILED tests/test_roundtrip.py::test_an_empty_openfda_comes_back_as_an_empty_object
+FAILED tests/test_roundtrip.py::test_the_fixture_rebuilds_from_parquet
+FAILED tests/test_roundtrip.py::test_collapsing_empty_openfda_into_absent_is_caught
+```
+
+The message is the criterion, so here it is in full:
+
+```
+AssertionError: safetyreportid 24737707: 1 field(s) differ
+    patient.drug[3].openfda: only in source ({})
+```
+
+It names the report, the exact path into it, and the value that vanished. Reverted, and the suite is green again.
+
+**One test was fixed by this exercise.** `test_collapsing_empty_openfda_into_absent_is_caught` originally died with a bare `StopIteration` under the break — with the bug live no empty block reaches the dimension, so the `next(...)` looking for one found nothing and reported the symptom as a crash in the test. That is the same "not just `assert False`" failure the criterion is about, one level up. It now says:
+
+```
+AssertionError: the fixture's `openfda: {}` never reached dim_openfda. If
+`OpenfdaDimension.add` is testing the block for truthiness instead of
+`is not None`, that IS the L-005 bug and this is the test saying so.
+```
 
 **Commit:** `test: round-trip integrity over committed fixture`
 

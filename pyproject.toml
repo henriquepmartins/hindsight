@@ -28,3 +28,12 @@ packages = ["src/hindsight"]
 dev = [
     "pytest>=9.1.1",
 ]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# The default run is the one CI can afford: no network, no partition on disk.
+# `-m slow` on the command line overrides this and selects the other half.
+addopts = "-m 'not slow'"
+markers = [
+    "slow: needs the 155 MB partition and a completed ingest. Local only — CI runs the committed fixture instead (T11)",
+]
