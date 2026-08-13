@@ -1,0 +1,268 @@
+# MedDRA reporting-artifact exclusion list
+#
+# PROVISIONAL. Reviewed at the start of every milestone, and expected to grow.
+# Reviewed: M0 (2026-08-13). Next review: M1.
+#
+# Terms in this file are dropped from `reactionmeddrapt` before any
+# disproportionality statistic is computed. Excluding a term changes every
+# number downstream, so each row carries the reason it is here and the list
+# lives in git rather than inline in a query: disagreement should arrive as a
+# diff, not as an argument.
+#
+# THE RULE FOR MEMBERSHIP
+#   A term is excluded only if it records something other than a bodily
+#   response to the product in the patient -- how the product was used,
+#   handled, supplied or labelled; whether it worked; that an exposure
+#   happened; or that nothing happened.
+#
+#   Where a term can be read as patient harm under any plausible reading, it
+#   stays. Ambiguity keeps the term. A term wrongly excluded is invisible; a
+#   term wrongly kept shows up at the top of the PRR table where it can be
+#   seen and argued about.
+#
+# TERMS DELIBERATELY NOT EXCLUDED, AND WHY
+#   Death                          An outcome, and one of the strongest safety
+#                                  signals there is.
+#   Toxicity to various agents     Non-specific, but it asserts harm.
+#   Overdose (unqualified)         Cannot be shown to be an error rather than
+#                                  self-harm. `Accidental overdose` and
+#                                  `Prescribed overdose` are excluded; the bare
+#                                  and intentional forms are not.
+#   Intentional overdose           Self-harm. The 2004 antidepressant boxed
+#   Intentional self-injury        warning is exactly this signal, and M4
+#                                  backtests against warnings of that kind.
+#   Intentional product misuse     Abuse liability is a signal the FDA acts on.
+#   Drug abuse, Substance abuse    Same.
+#   Drug interaction               Records a circumstance, but interactions are
+#                                  a real pharmacological effect.
+#   Injury associated with device  Device terms that assert patient harm --
+#   Device related infection       infection, thrombosis, sepsis, embolisation,
+#   Complication associated with   insertion and removal complications -- are
+#     device, and similar          kept. Only complaints about the article
+#                                  itself are excluded.
+#   Malignant neoplasm progression Disease progression in oncology reports,
+#                                  and a drug accelerating it would be a real
+#                                  finding. Revisit with M2's indication data.
+#
+# KNOWN GAPS
+#   * Procedure and concomitant-therapy terms (`Chemotherapy`, `Radiotherapy`,
+#     `Oxygen therapy`, ...) appear in the reaction field and are not bodily
+#     responses either, but enumerating them by hand is a losing game. They
+#     need the MedDRA hierarchy, which openFDA does not ship -- the export
+#     carries the preferred term only, no SOC or HLT. Deferred; stated here
+#     rather than quietly left out.
+#   * The list was curated against one partition (2025q1/0001-of-0028, 44,916
+#     reaction rows, 4,281 distinct terms). It is a floor, not a complete
+#     enumeration, and this is the same sampling habit that caused every bug in
+#     L-005 -- with one difference that makes it survivable: an incomplete
+#     exclusion list fails loudly, by putting an artifact at the top of the
+#     chart, where a sampled schema failed silently.
+#   * Term strings are MedDRA-version-bound and this partition alone carries
+#     two versions (27.1 on 44,792 rows, 28.0 on 124). Renamed terms across
+#     versions will need re-checking as the corpus widens.
+#
+# NO FREQUENCY FLOOR
+#   Rare terms are included. Under a minimum count of 3, an artifact term
+#   appearing 3 times all on one drug outranks one appearing 992 times across
+#   many -- so the tail is where the worst offenders are, not the head.
+#
+# COLUMNS
+#   term            exact `reactionmeddrapt` string, matched literally
+#   category        family, for review only
+#   partition_rows  occurrences in 2025q1/0001-of-0028. Provenance, not a
+#                   threshold, and stale the moment another partition is read
+#   reason          what the term actually records
+#
+# READING THIS FILE
+#   The `#` block above is not valid CSV. DuckDB needs `comment='#'`:
+#     read_csv('reference/excluded_terms.csv', comment='#')
+#   Without it the read returns zero rows and no terms are excluded.
+#
+term,category,partition_rows,reason
+Off label use,indication,992,"The product was used outside its approved indication; a use pattern, not a bodily response. L-004 found it the single most common term in the partition."
+Product use in unapproved indication,indication,336,"The same statement in newer MedDRA wording; records the indication, not an outcome."
+Drug ineffective for unapproved indication,indication,117,"An indication statement plus lack of effect. Neither half is an adverse reaction."
+Drug effective for unapproved indication,indication,54,"Records that the product worked, off label. The opposite of harm."
+Product use in unapproved therapeutic environment,indication,2,"Records the setting of use -- home versus clinic -- not a response to the product."
+Therapeutic product ineffective for unapproved indication,indication,1,"Product-worded variant of the same indication-plus-efficacy statement."
+Product used for unknown indication,indication,1,"Records that the indication was not captured; a completeness note about the report itself."
+Drug ineffective,efficacy,756,"Lack of effect. Genuinely reportable and worth studying, but it is the absence of benefit rather than the presence of harm, and left in it ranks products by how often they disappoint."
+Condition aggravated,efficacy,336,"The treated disease got worse. Without the indication field this cannot be separated from the disease simply progressing, so it measures who is sick rather than what the drug did. L-004."
+Therapeutic product effect incomplete,efficacy,74,"Partial lack of effect, worded for the product rather than the drug."
+Therapy non-responder,efficacy,67,"The patient did not respond; the same absence of benefit."
+Therapeutic product effect decreased,efficacy,59,"Loss of effect over time -- tolerance, adherence or storage -- still an efficacy observation."
+Therapy partial responder,efficacy,38,"Partial response. Efficacy, not harm."
+Therapeutic product ineffective,efficacy,6,"Product-worded duplicate of Drug ineffective."
+Therapeutic product effect delayed,efficacy,4,"Onset later than expected; an efficacy timing note."
+Therapeutic product effect variable,efficacy,2,"Inconsistent response between doses; efficacy again."
+No adverse event,no_event,135,"The reporter states explicitly that nothing happened. Counting it as an event inverts its meaning, and it is common in product-quality and pregnancy-registry reports."
+Product dose omission issue,administration,473,"A dose was missed. Records adherence, not a reaction."
+Inappropriate schedule of product administration,administration,266,"Doses taken at the wrong times; a timing error."
+Drug dose omission by device,administration,223,"A device failed to deliver a scheduled dose. The miss is the event, not a patient response."
+Incorrect dose administered,administration,154,"The wrong amount was given; a dosing error."
+Wrong technique in product usage process,administration,149,"The patient handled the product incorrectly -- injection technique, inhaler priming. Usability, not pharmacology."
+Product use issue,administration,137,"Generic wrapper meaning the product was used in some non-standard way, with no harm asserted."
+Intentional product use issue,administration,110,"A deliberate departure from the directions with no outcome stated. L-004."
+Product dose omission in error,administration,79,"A dose missed by mistake rather than by choice."
+Intentional dose omission,administration,61,"The patient chose to skip doses; non-adherence."
+Wrong technique in device usage process,administration,47,"The device analogue of the usage-technique term."
+Incorrect dose administered by device,administration,34,"A device delivered the wrong amount."
+Contraindicated product administered,administration,31,"Given against a stated contraindication. A prescribing failure; any resulting harm is coded separately."
+Underdose,administration,31,"Less than the intended dose reached the patient."
+Device use error,administration,30,"Generic device handling error."
+Medication error,administration,23,"The generic error term, with no specification of what went wrong."
+Product use complaint,administration,19,"A complaint about using the product, with no bodily effect stated."
+Accidental overdose,administration,18,"More than intended taken by mistake -- a dosing error. The unqualified and intentional forms are deliberately kept; see the header."
+Product preparation error,administration,17,"Reconstitution or dilution done wrong before administration."
+Expired product administered,administration,16,"Product used past its expiry; a handling error."
+Prescribed underdose,administration,15,"The prescriber wrote too low a dose."
+Product administered to patient of inappropriate age,administration,14,"Given outside the approved age range; an indication and prescribing statement."
+Product administration error,administration,14,"Generic administration error."
+Accidental underdose,administration,13,"Less than intended taken by mistake."
+Incorrect route of product administration,administration,13,"Given by the wrong route."
+Extra dose administered,administration,12,"An additional dose was taken."
+Prescribed overdose,administration,12,"The prescriber wrote too high a dose."
+Circumstance or information capable of leading to medication error,administration,11,"A near miss. By definition nothing reached the patient."
+Incorrect drug administration rate,administration,11,"An infusion or injection given too fast or too slow."
+Wrong product administered,administration,9,"A different product than intended was given, which also means the drug named on the report is not the drug the patient took."
+Incorrect product administration duration,administration,8,"Treatment ran longer or shorter than prescribed."
+Expired device used,administration,6,"Device used past its expiry."
+Intentional underdose,administration,6,"The patient deliberately took less."
+Product administered at inappropriate site,administration,6,"Injected or applied at the wrong body site."
+Circumstance or information capable of leading to device use error,administration,5,"A device near miss; nothing reached the patient."
+Drug titration error,administration,5,"Dose escalation or reduction done wrong."
+Product preparation issue,administration,5,"A difficulty preparing the product before use."
+Incorrect disposal of product,administration,3,"How the product was discarded after use."
+Incorrect dosage administered,administration,3,"Dosing error; near-duplicate of Incorrect dose administered."
+Intercepted product administration error,administration,3,"An error caught before it reached the patient."
+Labelled drug-drug interaction medication error,administration,3,"An already-labelled interaction prescribed anyway. The error, not its consequence."
+Wrong dose,administration,3,"Dosing error, short wording."
+Wrong patient received product,administration,3,"The product went to someone other than the intended patient, so the report is not about the intended exposure at all."
+Drug administered in wrong device,administration,3,"Drug loaded into a device it was not meant for."
+Documented hypersensitivity to administered product,administration,2,"A known allergy was on record and the product was given anyway; a prescribing failure."
+Inappropriate schedule of product discontinuation,administration,2,"Stopped on the wrong schedule; a timing decision."
+Multiple use of single-use product,administration,1,"A single-use item reused; a handling error."
+Product administered by wrong person,administration,1,"Administered by someone not qualified to."
+Product monitoring error,administration,1,"Required monitoring was not carried out correctly."
+Drug dose titration not performed,administration,1,"A required titration was skipped."
+Incorrect product dosage form administered,administration,1,"A tablet given where a solution was intended, or similar."
+Lack of administration site rotation,administration,1,"Injection sites were not rotated; a technique failure."
+Wrong device used,administration,1,"A different device than intended."
+Wrong schedule,administration,1,"Timing error, short wording."
+Transcription medication error,administration,1,"The prescription was copied wrong."
+Product administered from unauthorised provider,administration,1,"Sourced outside the legitimate supply chain."
+Product storage error,supply,59,"Stored outside its required conditions, so the product may not have been intact. A supply-chain fact."
+Recalled product administered,supply,30,"A recalled lot reached a patient; a distribution failure."
+Product availability issue,supply,28,"The product could not be obtained. Nothing was administered."
+Product distribution issue,supply,27,"A problem moving the product through the supply chain."
+Product substitution issue,supply,26,"A different product was supplied in place of the one prescribed."
+Product prescribing error,supply,21,"The prescription itself was wrong."
+Product prescribing issue,supply,21,"A non-specific problem with the prescription."
+Product dispensing error,supply,19,"The pharmacy dispensed the wrong thing."
+Product communication issue,supply,15,"Information about the product was not conveyed correctly."
+Product supply issue,supply,7,"Shortage or interruption of supply."
+Product dispensing issue,supply,6,"A non-specific dispensing problem."
+Product temperature excursion issue,supply,6,"Cold chain broken in transit or storage."
+Recalled product,supply,4,"The product was subject to a recall."
+Device dispensing error,supply,2,"The wrong device was dispensed."
+Product counterfeit,supply,2,"The product was not genuine, so it is not the drug the label names."
+Suspected counterfeit product,supply,2,"Counterfeiting suspected but unconfirmed."
+Product substitution,supply,2,"A different product was supplied than the one prescribed; a supply-chain event with no patient response attached."
+Product lot number issue,supply,2,"A problem with lot identification."
+Intercepted product dispensing error,supply,1,"Caught before it reached the patient."
+Intercepted product prescribing error,supply,1,"Caught before it reached the patient."
+Intercepted product storage error,supply,1,"Caught before it reached the patient."
+Counterfeit product administered,supply,1,"A counterfeit reached the patient. What harmed them, if anything, was not the labelled drug."
+Contraindicated product prescribed,supply,1,"Prescribed against a contraindication and caught at the prescription."
+Product expiration date issue,supply,1,"A problem with the printed expiry."
+Product complaint,product_quality,28,"A generic complaint about the article."
+Product quality issue,product_quality,22,"A generic defect in the article. It describes the unit dispensed, not the patient."
+Liquid product physical issue,product_quality,12,"Something visibly wrong with a liquid formulation."
+Product adhesion issue,product_quality,9,"A patch or film failed to stick."
+Product physical issue,product_quality,9,"A physical defect in the article."
+Product delivery mechanism issue,product_quality,8,"The pump, pen or applicator did not deliver correctly."
+Product contamination physical,product_quality,7,"Foreign matter in the product."
+Product packaging difficult to open,product_quality,7,"A packaging usability complaint."
+Product size issue,product_quality,7,"The tablet or device dimension was wrong or unusable."
+Product taste abnormal,product_quality,7,"How the product tasted. The taste disturbance itself is coded as Dysgeusia, which is kept."
+Product label confusion,product_quality,7,"The label was misread; a labelling defect."
+Poor quality product administered,product_quality,6,"A defective unit reached a patient."
+Product deposit,product_quality,6,"Residue or sediment in the product."
+Product packaging quantity issue,product_quality,6,"The wrong count in the pack."
+Product container issue,product_quality,5,"A defect in the container."
+Product label issue,product_quality,5,"A defect in the printed label; a complaint about the packaging, not a response to the drug."
+Product odour abnormal,product_quality,5,"How the product smelled. A property of the unit dispensed, not a symptom in the patient."
+Product residue present,product_quality,5,"Residue left in the container after use; a quality complaint about the article."
+Product formulation issue,product_quality,4,"A defect in how the product was formulated."
+Product leakage,product_quality,4,"The product leaked from its container."
+Product physical consistency issue,product_quality,4,"Wrong texture or viscosity."
+Product contamination,product_quality,3,"Contamination, unspecified."
+Product reconstitution quality issue,product_quality,3,"The product did not reconstitute correctly."
+Product closure removal difficult,product_quality,2,"A cap or seal that would not open."
+Product colour issue,product_quality,2,"The unit was the wrong colour or had discoloured; an appearance defect, not a symptom."
+Product confusion,product_quality,2,"Two products mistaken for each other."
+Product measured potency issue,product_quality,2,"Assay outside specification."
+Product packaging confusion,product_quality,2,"Packaging mistaken for another product's."
+Product solubility abnormal,product_quality,2,"Did not dissolve as expected."
+Suspected product contamination,product_quality,2,"Contamination suspected but unconfirmed."
+Suspected product quality issue,product_quality,2,"A quality defect suspected but unconfirmed."
+Product appearance confusion,product_quality,1,"Two products that look alike were mistaken."
+Product commingling,product_quality,1,"Different products mixed in one container."
+Product contamination with body fluid,product_quality,1,"Contamination by body fluid."
+Product name confusion,product_quality,1,"Look-alike or sound-alike names."
+Product outer packaging issue,product_quality,1,"A defect in the outer pack."
+Physical product label issue,product_quality,1,"A physical defect in the label itself."
+Device delivery system issue,device,91,"The delivery mechanism did not work; a complaint about the article."
+Device issue,device,89,"A generic defect in the device. It describes the hardware, and any harm it caused is coded separately."
+Device difficult to use,device,85,"A usability complaint about the hardware. A real problem, and not a bodily response to the drug."
+Device leakage,device,73,"The device leaked. A hardware fault; what dose actually reached the patient is a separate question."
+Device breakage,device,46,"The device broke. A hardware fault, with any patient consequence coded separately."
+Device mechanical issue,device,46,"A mechanical defect in the hardware, not an effect in the patient."
+Device malfunction,device,41,"The device did not function."
+Device defective,device,39,"The device was defective."
+Device information output issue,device,25,"A display or reading was wrong."
+Device deposit issue,device,17,"Residue in or on the device."
+Device physical property issue,device,17,"A physical property of the device was out of specification; a manufacturing complaint."
+Device use issue,device,17,"Generic non-standard use of the device."
+Poor quality device used,device,14,"A defective unit was used."
+Device deployment issue,device,12,"The device did not deploy."
+Device failure,device,9,"The device stopped working. A hardware fault, not a reaction."
+Device material issue,device,9,"A defect in the device material."
+Device occlusion,device,9,"The device blocked. The patient consequence, if any, is coded separately."
+Device power source issue,device,8,"Battery or power failure."
+Device adhesion issue,device,7,"An adhesive device did not stick."
+Device operational issue,device,6,"The device did not operate as intended; a hardware fault."
+Device placement issue,device,5,"The device would not seat or position correctly."
+Device infusion issue,device,4,"An infusion device did not deliver correctly."
+Device safety feature issue,device,3,"A safety feature did not work."
+Device chemical property issue,device,2,"A chemical defect in the device."
+Device connection issue,device,2,"Components would not connect."
+Device alarm issue,device,1,"An alarm failed or misfired."
+Device kink,device,1,"Tubing kinked. A mechanical fault in the delivery hardware."
+Drug-device incompatibility,device,1,"The drug and the device were not compatible."
+Accidental exposure to product,exposure,128,"Someone was exposed to the product unintentionally. Records the exposure; any effect is coded separately."
+Maternal exposure during pregnancy,exposure,124,"Registry bookkeeping that the mother took the product while pregnant. Very often filed with no adverse outcome at all."
+Exposure via skin contact,exposure,71,"Records the route by which contact happened."
+Foetal exposure during pregnancy,exposure,50,"The foetus was exposed in utero. An exposure statement."
+Exposure during pregnancy,exposure,45,"Unqualified pregnancy exposure."
+Maternal exposure before pregnancy,exposure,10,"Exposure preceding conception."
+Maternal exposure during breast feeding,exposure,7,"Exposure while breastfeeding."
+Foetal exposure during delivery,exposure,4,"Records that exposure occurred at delivery; no outcome is asserted."
+Exposure via breast milk,exposure,3,"The route of infant exposure."
+Accidental exposure to product by child,exposure,2,"A child reached the product. A real safety concern, but the term records the exposure and the toxicity is coded separately."
+Drug exposure before pregnancy,exposure,2,"Exposure preceding conception."
+Foetal exposure timing unspecified,exposure,2,"Exposure with the timing not captured."
+Exposure to communicable disease,exposure,2,"An exposure to something other than the product; background circumstance."
+Exposure to fungus,exposure,2,"An environmental exposure recorded as context."
+Foetal exposure via father,exposure,1,"Records exposure through the father; an exposure statement with no outcome."
+Maternal exposure during delivery,exposure,1,"Records that the mother was exposed at delivery; an exposure statement."
+Paternal exposure before pregnancy,exposure,1,"Exposure preceding conception."
+Paternal exposure during pregnancy,exposure,1,"Paternal exposure during the pregnancy."
+Exposure to SARS-CoV-2,exposure,1,"An infectious exposure recorded as context."
+Exposure to allergen,exposure,1,"An environmental exposure recorded as context."
+Exposure to chemical pollution,exposure,1,"An environmental exposure recorded as context."
+Therapy interrupted,therapy_decision,125,"Treatment was stopped. Usually stopped because of an adverse event -- and that event is coded separately, so this row adds a decision, not a reaction."
+Therapy cessation,therapy_decision,30,"Treatment ended. The same decision, permanently."
+Therapy change,therapy_decision,15,"Treatment was switched. A clinical decision; whatever prompted it is coded separately."
+Product administration interrupted,therapy_decision,7,"An administration was stopped part way."
+Unevaluable therapy,therapy_decision,1,"The response could not be assessed; a data-quality note."
