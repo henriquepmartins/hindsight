@@ -1,7 +1,7 @@
 # State
 
 **Last Updated:** 2026-08-13
-**Current Work:** M0 — Walking Skeleton. Spec, design and 19 tasks approved: `.specs/features/m0-walking-skeleton/`. Next action: **T1**.
+**Current Work:** M0 — Walking Skeleton. T1 and T2 done; repo initialized as `hindsight/`, dependencies pinned. Next action: **T3** (Makefile skeleton).
 
 ---
 
@@ -119,11 +119,9 @@
 
 **Consequence for M4 scope:** SrLC starting in 2016 is not a real constraint — FAERS runs from 2004, giving a 12-year lookback before the first evaluable event. That is close to the ideal shape for a lead-time study.
 
-### B-003: `pyarrow` / `duckdb` not installed locally
+### ~~B-003: `pyarrow` / `duckdb` not installed locally~~ — RESOLVED 2026-08-13
 
-**Discovered:** 2026-08-11
-**Impact:** Trivial; blocks M0 task 1 only.
-**Resolution:** Closed by **T2** (pin and install dependencies), the second task of M0.
+**Resolution:** Closed by **T2**. Pinned in `uv.lock` and verified from a clean clone with `uv sync --frozen`: Python 3.12.12 · duckdb 1.5.5 · pyarrow 25.0.1 · ijson 3.5.1 · httpx 0.28.1 · pytest 9.1.1 (dev group). `polars` deliberately omitted (design.md).
 
 ---
 
