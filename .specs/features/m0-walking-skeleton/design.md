@@ -153,8 +153,9 @@ hindsight/
 │   ├── schema.py    normalize.py  write.py
 │   ├── roundtrip.py  cli.py
 │   └── analysis/prr.py
-├── data/                     # gitignored
-│   ├── raw/  parquet/  manifest/
+├── data/
+│   ├── raw/  parquet/        # gitignored — re-derivable cache
+│   └── manifest/             # committed — the pins
 ├── schema/                   # committed
 ├── reference/excluded_terms.csv
 ├── notebooks/m0_finding.ipynb
@@ -165,7 +166,7 @@ hindsight/
 └── .github/workflows/{ci,publish}.yml
 ```
 
-`data/` is a cache and is gitignored. The reproducibility claim rests on `manifest/` + `schema/`, both committed — pin, don't hoard (AD-008).
+`data/raw/` and `data/parquet/` are a cache and are gitignored — both are re-derivable from a pinned source. `data/manifest/` is the deliberate exception and **is** committed, alongside `schema/`: together they are the reproducibility claim. Pin, don't hoard (AD-008), only works if the pins themselves are in git.
 
 ---
 
