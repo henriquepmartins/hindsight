@@ -3,7 +3,9 @@
 # Targets marked TODO below are stubs that fail loudly with the task that fills
 # them. See .specs/features/m0-walking-skeleton/tasks.md.
 
-PARTITION ?= 2025q1/0001-of-0034
+# openFDA re-chunks quarters between exports, so this suffix has a shelf life.
+# `resolve` fails loudly with the bucket's real contents when it goes stale.
+PARTITION ?= 2025q1/0001-of-0028
 
 .DEFAULT_GOAL := help
 .PHONY: help install ingest test analyze site all clean
