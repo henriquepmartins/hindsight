@@ -1,7 +1,7 @@
 # State
 
 **Last Updated:** 2026-08-13
-**Current Work:** M0 — Walking Skeleton. T1–T6 done: repo initialized, dependencies pinned, Makefile skeleton, partition resolver, pinned resumable downloader, streaming report iterator. Next action: **T7** (openfda dimension writer).
+**Current Work:** M0 — Walking Skeleton. T1–T7 done: repo initialized, dependencies pinned, Makefile skeleton, partition resolver, pinned resumable downloader, streaming report iterator, openfda dimension writer. Next action: **T8** (record splitter).
 
 ---
 
@@ -165,7 +165,7 @@ Round 3: **12,000 / 12,000 byte-identical. Zero mismatches.**
 
 Compression is this extreme because nearly every column is low-cardinality and dictionary-encodes to almost nothing: only 4,721 distinct MedDRA terms across 57,664 reactions, dates repeat heavily within a quarter, and the `openfda` block (92.7% of bytes) collapses from 103,187 inline copies to a few thousand dimension rows.
 
-> ⚠️ **Unresolved:** the distinct-`openfda` count was recorded twice with different values (2,537 above vs. 1,491 originally here). The spike output was not saved, so neither is trustworthy. **M0-11 re-measures it** and this note gets replaced with the number. Everything else in L-003 was recorded once and stands.
+> ✅ **Resolved by T7:** the distinct-`openfda` count is **2,251** for `2025q1/0001-of-0028`, measured by running `OpenfdaDimension` over all 12,000 reports. Neither recorded value was right (2,537 above, 1,491 originally here), which is what the missing spike output already implied. The partition also holds 71,990 drug rows against L-003's 103,187 — a different partition, not a regression, and T9 records the rest. Everything else in L-003 was recorded once and stands.
 
 **Verified not to be silent data loss:** row counts match the source exactly (12,000 / 103,187), all 21+15+5 columns survive, and a join+group-by across the full partition returns 322,185 distinct drug–event pairs in **0.048s**.
 
@@ -231,6 +231,10 @@ Compression is this extreme because nearly every column is low-cardinality and d
 | Full-partition parse time | 2.1 s for 12,000 reports; first report in 2.8 ms | T6, same run |
 | Every FAERS scalar is a string | 19,648,458 scalars in the partition, zero non-`str` | T6, walked every value |
 | Smallest partition in the export | 324 records (`2024q4/0029-of-0029`); none report zero | T6, manifest, all 1,767 |
+| Distinct `openfda` blocks | **2,251** in one partition, settling 2,537-vs-1,491 | T7, `OpenfdaDimension` over 12,000 reports |
+| `openfda` dedup ratio | 27.0× — 60,862 blocks on drug rows collapse to 2,251 | T7, same run |
+| Drug rows per partition, re-measured | 71,990 (L-003's 103,187 came from the dead partition) | T7, same run |
+| `openfda: {}` present but empty | **507 drug rows** — absent is 11,128, and they are not the same | T7, same run |
 
 > ⚠️ Caveat, hardened by **L-006**: per-partition figures come from one partition, `2025q1/drug-event-0001-of-0034` — **which no longer exists.** The 2026-08-10 export chunks 2025q1 into 28 files, not 34. These figures are prior expectations, not reproducible measurements. T6 has since re-measured the report count against `2025q1/0001-of-0028` — 12,000, which happens to match — and T9 re-measures the drug and reaction rows. The corpus-level rows above (1,767 partitions, 111 GiB, 20,692,690 records) were re-verified against the manifest on 2026-08-13 and hold exactly.
 

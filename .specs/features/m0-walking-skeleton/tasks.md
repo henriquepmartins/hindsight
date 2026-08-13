@@ -229,10 +229,17 @@ print(p.records, n, n == p.records)"   # 12000 12000 True
 **⚠️ The trap that already bit once:** `k = key(o) if o else None` is **wrong**. An empty dict `{}` is falsy, so `openfda: {}` gets treated as absent — this produced exactly 492 mismatches in the spike (L-005). The correct test is `if o is not None`. Write it the wrong way first, watch T11 fail, then fix it. That failure is worth more than the correct line.
 
 **Done when:**
-- [ ] `key()` is stable across runs and across key ordering
-- [ ] Empty dict produces a key, absent field produces `None`
-- [ ] Each distinct block is written once; a `set` of hashes is the only state retained
-- [ ] Asserts no hash collision — two different blocks mapping to one key raises
+- [x] `key()` is stable across runs and across key ordering
+- [x] Empty dict produces a key, absent field produces `None`
+- [x] Each distinct block is written once; a `set` of hashes is the only state retained
+- [x] Asserts no hash collision — two different blocks mapping to one key raises
+
+**Deviations from the original criteria, and why:**
+- **The last two criteria contradict each other.** A `set` of truncated hashes cannot detect a collision — deciding whether two blocks that share a key are the same block requires something the set threw away. Resolved by keeping `key -> full 40-char digest`: a collision is a key hit whose full digests differ. Blocks themselves are still never retained. Measured on this partition: 2,251 distinct blocks, ~90 KB of digests against ~30 MB for the blocks.
+- **The writer is `OpenfdaDimension.add(block) -> (key, row | None)`.** An absent block returns `(None, None)`, so T9's write loop needs no `is not None` branch of its own. That makes the L-005 trap structurally impossible at the call site rather than a rule repeated at each one. `add` also returns the key, so the block is hashed once per drug row and not twice.
+- **`usedforsecurity=False` on the sha1.** This is a content address, not a security hash. Same digest, and it keeps the pipeline working on a FIPS-restricted interpreter.
+- **The `if o` bug was not committed first.** The task asks for it to be written wrong, watched fail at T11, then fixed. Under the current working agreement that just plants a known bug in the history. `test_the_falsy_test_is_the_bug_this_rule_exists_for` puts both expressions side by side instead — same evidence, nothing broken in git.
+- Covered by `tests/test_normalize.py` — 15 cases, no network, 0.02 s. The digest of a known block is pinned as a literal, so changing the separators, the sort, or the encoding fails there rather than silently re-keying every row ever written.
 
 **Verify:**
 ```bash
@@ -242,6 +249,19 @@ assert key({'a':[1],'b':[2]}) == key({'b':[2],'a':[1]})   # order-independent
 assert key({}) is not None                                 # empty dict is real
 print('ok')"
 ```
+
+Then over the real partition, which is where the numbers come from:
+
+```
+drug rows           71,990
+openfda absent      11,128  -> openfda_key is None
+openfda empty {}       507  -> a real key, the L-005 507
+blocks emitted       2,251  == len(dimension)
+dedup ratio           27.0x
+peak RSS             51 MB  (streaming + dimension)
+```
+
+The 2,251 settles the 2,537-vs-1,491 contradiction STATE.md had parked for M0-11. Neither recorded value was right.
 
 **Commit:** `feat(normalize): content-hashed openfda dimension`
 
