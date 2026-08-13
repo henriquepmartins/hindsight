@@ -111,13 +111,19 @@ Note: `polars` is deliberately left out (design.md). Add it when a transform nee
 **Concept:** *Talking to an API you don't control.* The response is a deeply nested dict whose shape you must discover, not assume. You'll practice exploring an unknown JSON structure at the REPL before writing the accessor — and writing the accessor so it **fails loudly** if the shape changes, instead of returning `None` three call frames from where the problem is.
 
 **Done when:**
-- [ ] Returns a `Partition` dataclass: `id`, `url`, `export_date`, `size_bytes`
-- [ ] Unknown partition id raises a named exception with the id in the message
-- [ ] An unexpected response shape raises rather than returning `None`
+- [x] Returns a `Partition` dataclass: `id`, `url`, `export_date`, `size_mb`, `records`
+- [x] Unknown partition id raises a named exception with the id in the message, and lists what the bucket actually contains
+- [x] An unexpected response shape raises rather than returning `None`
+
+**Deviations from the original criteria, and why:**
+- `size_bytes: int` → `size_mb: float`. The manifest reports `"size_mb": "154.80"` — a string, two decimals, approximate. Naming a derived value `size_bytes` would imply a precision the source does not have, and would force a silent MB-vs-MiB choice worth 5%. T5 records the true byte count from the download.
+- `records: int` added. Free from the manifest, and it removes a hardcoded assumption: not every partition holds 12,000 reports (`2025q1/0028-of-0028` holds 3,230).
+- `export_date` is a `datetime.date`, not a string. M1 orders exports to detect change, and `"2026-8-9" > "2026-08-10"` as strings.
+- The partition id is derived from the download URL, since the manifest carries no id of its own. The pattern must not require `YYYYqN` — openFDA publishes a non-quarter `all_other/` bucket (L-006).
 
 **Verify:**
 ```bash
-uv run python -c "from hindsight.manifest import resolve; print(resolve('2025q1/0001-of-0034'))"
+uv run python -c "from hindsight.manifest import resolve; print(resolve('2025q1/0001-of-0028'))"
 ```
 Expected: a `Partition` with a real URL and an export date matching STATE.md's verified fact (2026-08-10 or later).
 
@@ -141,8 +147,8 @@ Expected: a `Partition` with a real URL and an export date matching STATE.md's v
 
 **Verify:**
 ```bash
-time uv run hindsight fetch 2025q1/0001-of-0034   # ~22 s, per STATE.md's 11.6 MB/s
-time uv run hindsight fetch 2025q1/0001-of-0034   # < 1 s, prints "cached"
+time uv run hindsight fetch 2025q1/0001-of-0028   # ~22 s, per STATE.md's 11.6 MB/s
+time uv run hindsight fetch 2025q1/0001-of-0028   # < 1 s, prints "cached"
 ```
 
 **Commit:** `feat(fetch): pinned resumable partition download`
@@ -160,7 +166,7 @@ time uv run hindsight fetch 2025q1/0001-of-0034   # < 1 s, prints "cached"
 **Watch for:** `ijson.items(f, 'results.item')` is the incantation — `'results.item'` means "each element of the results array," not a field called `item`.
 
 **Done when:**
-- [ ] Yields exactly 12,000 dicts for the 2025q1 partition
+- [ ] Yields exactly `Partition.records` dicts — read the count from the manifest, do not hardcode 12,000 (L-006)
 - [ ] Nothing is extracted to disk (check `data/` before and after)
 - [ ] Peak RSS stays under 500 MB across a full pass
 - [ ] Works as a generator — `next(iter_reports(p))` returns immediately, without reading the whole file
@@ -169,7 +175,7 @@ time uv run hindsight fetch 2025q1/0001-of-0034   # < 1 s, prints "cached"
 ```bash
 /usr/bin/time -l uv run python -c "
 from hindsight.stream import iter_reports
-print(sum(1 for _ in iter_reports('data/raw/2025q1-0001.zip')))
+print(sum(1 for _ in iter_reports('data/raw/2025q1-0001-of-0028.zip')))
 " 2>&1 | grep -E "12000|maximum resident"
 ```
 Expected: `12000`, and maximum resident set size well under 500 MB (design.md predicts < 200 MB).
@@ -230,7 +236,7 @@ print('ok')"
 uv run python -c "
 from hindsight.stream import iter_reports
 from hindsight.normalize import split
-r = next(iter_reports('data/raw/2025q1-0001.zip'))
+r = next(iter_reports('data/raw/2025q1-0001-of-0028.zip'))
 rs = split(r)
 src = set(r) | {'pt_'+k for k in (r.get('patient') or {}) if k not in ('drug','reaction')}
 assert set(rs.report) >= src - {'patient'}, src - set(rs.report)
@@ -254,14 +260,15 @@ print('no fields lost')"
 **Done when:**
 - [ ] `schema/2025q1-0001.json` is committed and human-readable
 - [ ] Four Parquet files exist, ZSTD-9, under `data/parquet/year=2025/quarter=1/`
-- [ ] Row counts match STATE.md exactly: 12,000 reports · 103,187 drug · 57,664 reaction
+- [ ] Report row count equals the manifest's `records` for this partition — read it from `Partition.records`, do not hardcode 12,000 (the last partition of a quarter is a remainder; `2025q1/0028-of-0028` holds 3,230)
+- [ ] Drug and reaction row counts are **recorded**, not asserted. L-003's 103,187 / 57,664 came from a partition that no longer exists (L-006) — they are prior expectations. Write the measured numbers into STATE.md
 - [ ] A record with a field absent from the schema raises, never silently drops
-- [ ] Total Parquet size lands near 3.55 MB (L-003) — a wild miss means something is wrong
+- [ ] Compression ratio measured and compared against L-003's 338×. An order-of-magnitude gap means something is wrong; a modest gap is just a different partition
 - [ ] `metrics.json` carries row counts and non-null rates for `drugstartdate`, UNII, `companynumb`
 
 **Verify:**
 ```bash
-uv run hindsight ingest 2025q1/0001-of-0034
+uv run hindsight ingest 2025q1/0001-of-0028
 du -sh data/parquet/                                    # ≈ 3.5 MB
 uv run python -c "
 import duckdb

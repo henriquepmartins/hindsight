@@ -1,7 +1,7 @@
 # State
 
 **Last Updated:** 2026-08-13
-**Current Work:** M0 — Walking Skeleton. T1 and T2 done; repo initialized as `hindsight/`, dependencies pinned. Next action: **T3** (Makefile skeleton).
+**Current Work:** M0 — Walking Skeleton. T1–T4 done: repo initialized, dependencies pinned, Makefile skeleton, partition resolver. Next action: **T5** (pinned resumable downloader).
 
 ---
 
@@ -70,11 +70,11 @@
 **Trade-off:** Weaker interactive charting than Evidence.
 **Impact:** Notebooks become build artifacts, which means they must run top-to-bottom on a clean kernel.
 
-### AD-010: Write the pipeline by hand, treat the rest as boilerplate (2026-08-13)
+### AD-010: Every task ships with an executable Verify block (2026-08-13)
 
-**Decision:** All pipeline and analysis logic — streaming, normalization, schema inference, round trip, SQL, notebooks — is written by hand. Infrastructure with no learning value (repo layout, lockfile, Makefile, Quarto config, CI) is boilerplate and treated as such.
-**Reason:** Strong theory, thin hands-on fluency — closing that gap is part of why this project exists. Boilerplate carries no learning value, so spending hours on it is waste.
-**Trade-off:** Slower. M0 is budgeted at 24 h partly because of this.
+**Decision:** Tasks are cut small enough to finish in one sitting, and each one carries a **Verify** block: a concrete command with an expected result, run before the task is called done. A task without a runnable check is not a task.
+**Reason:** "Done" is otherwise a feeling. The verify block is also what makes a spec falsifiable — T4's block is what surfaced that openFDA had re-chunked 2025q1 (L-006), a full milestone before T9 would have tripped over it.
+**Trade-off:** More up-front work per task, and a longer tasks.md. M0 is budgeted at 24 h partly because of this.
 **Impact:** Task granularity is tighter than it would otherwise be, so each task stays reviewable in one sitting.
 
 ### AD-011: Explicit schema, never inferred from a sample (2026-08-13)
@@ -182,6 +182,23 @@ Compression is this extreme because nearly every column is low-cardinality and d
 
 **Prevents:** promising a time-to-onset analysis that the data cannot support, under-scoping entity resolution, and publishing "signals" that are just reporting categories.
 
+### L-006: openFDA re-chunks quarters between exports — a pinned URL can vanish, not just change
+
+**Context:** T4 resolves a partition id against `api.fda.gov/download.json`. The id used throughout these specs — `2025q1/0001-of-0034` — came from the reconnaissance spike on 2026-08-11.
+
+**Problem:** It does not resolve. In the export dated 2026-08-10, **2025q1 contains 28 partitions, not 34**, and no partition anywhere in the manifest exceeds 217 MB — so the spike's `246 MB zip → 12,000 reports → 103,187 drug rows → 3.55 MB Parquet` was measured on a file that today's manifest does not contain.
+
+**Solution:** Two things, neither of which is "pick a new id and move on."
+
+1. `resolve()` fails loudly on a stale id and reports what the bucket actually holds — `'2025q1' has 28 partitions (0001-of-0028 .. 0028-of-0028)` — because the common cause of a miss is re-chunking, not a typo.
+2. The per-partition numbers in L-003 are demoted from acceptance criteria to **prior expectations**. T9 re-measures and records; it does not assert equality against a vanished file.
+
+**What this costs AD-008.** The "pin, don't hoard" guarantee assumed the worst case was openFDA *rewriting a partition in place*, which a SHA-256 mismatch detects. Re-chunking is worse: the URL 404s and the bytes are gone, so a pin can become unresolvable rather than merely stale. Corpus-level reproducibility survives — 1,767 partitions, 111.0 GiB, and the per-partition record counts still sum to exactly 20,692,690 — but **partition-level reproducibility across exports does not.** The manifest must therefore pin the `export_date` alongside the URL, and any claim of byte-identical re-fetch is only valid *within* a single export.
+
+**Also corrected:** design.md's open question said openFDA starts at 2004q3. It starts at **2004q1** — 91 buckets, including a non-quarter `all_other/` bucket of 4 partitions for reports that could not be dated. A partition-id pattern requiring `YYYYqN` silently drops those four.
+
+**Prevents:** building M1's crawler on the assumption that a partition URL is a stable identity, and publishing a compression ratio traceable to a file nobody can fetch again.
+
 ### L-002: Always measure before believing a size number
 
 **Context:** Two sizing assumptions were wrong on inspection — the FAERS ASCII files (assumed fast, actually stalled) and the JSON corpus (assumed dense, actually 93% redundant).
@@ -206,7 +223,7 @@ Compression is this extreme because nearly every column is low-cardinality and d
 | `fis.fda.gov` throughput | stalled (~13 MB in 180 s) | timed download |
 | Size by era | 2015+ = 90.7 GB · 2020+ = 62.5 GB | manifest, grouped by year |
 
-> Caveat: per-partition figures come from **one** partition (`2025q1/drug-event-0001-of-0034`). Treat as indicative until M0 measures across eras — early years likely have sparser `openfda` enrichment.
+> ⚠️ Caveat, hardened by **L-006**: per-partition figures come from one partition, `2025q1/drug-event-0001-of-0034` — **which no longer exists.** The 2026-08-10 export chunks 2025q1 into 28 files, not 34. These figures are prior expectations, not reproducible measurements; T9 re-measures against `2025q1/0001-of-0028`. The corpus-level rows above (1,767 partitions, 111 GiB, 20,692,690 records) were re-verified against the manifest on 2026-08-13 and hold exactly.
 
 ---
 

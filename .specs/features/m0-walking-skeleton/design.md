@@ -186,5 +186,5 @@ hindsight/
 |---|---|
 | Is `sha1[:16]` enough for the dimension key? | T7 asserts no collision on the partition. If it ever fires, widen to 32 |
 | Row-group size of 2000 — right? | T18 measures. Only tune if peak RSS is near the ceiling |
-| Which 2005-era partition id? | T19, from the manifest. openFDA starts 2004q3 |
+| Which 2005-era partition id? | T19, from the manifest. openFDA starts 2004q1; note the non-quarter `all_other/` bucket (L-006) |
 | Does openFDA carry every FAERS ASCII field? | Deferred to M1 (AD-002 todo). M0 doesn't need it |

@@ -61,7 +61,7 @@ M0 pushes 12,000 reports through every layer of the real architecture and puts o
 **Acceptance Criteria:**
 
 1. WHEN the manifest fetcher runs THEN the system SHALL read `api.fda.gov/download.json` and produce the list of `drug/event` partition URLs with the export date
-2. WHEN a partition is requested by id (e.g. `2025q1/0001-of-0034`) THEN the system SHALL download it, compute its SHA-256, and record `{id, url, export_date, sha256, bytes}` in `data/manifest/`
+2. WHEN a partition is requested by id (e.g. `2025q1/0001-of-0028`) THEN the system SHALL download it, compute its SHA-256, and record `{id, url, export_date, sha256, bytes}` in `data/manifest/`
 3. WHEN the same partition is requested again and the local file matches the recorded SHA-256 THEN the system SHALL skip the download
 4. WHEN the download is interrupted THEN the system SHALL NOT leave a truncated file that a later run treats as complete
 5. WHEN the recorded SHA-256 does not match the downloaded bytes THEN the system SHALL fail loudly rather than proceed
