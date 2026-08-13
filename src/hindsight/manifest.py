@@ -52,8 +52,9 @@ class UnexpectedManifestShape(ManifestError):
 class Partition:
     """One bulk-export file, ready to fetch.
 
-    `size_mb` is the manifest's own figure — a string with two decimals,
-    approximate. The real byte count comes from the download.
+    `size_mb` is the manifest's own figure — a string with two decimals, and
+    despite the name it is MiB: T5 measured 162,319,793 bytes against a stated
+    154.80. Advisory only. The real byte count comes from the download.
     """
 
     id: str

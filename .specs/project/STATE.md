@@ -1,7 +1,7 @@
 # State
 
 **Last Updated:** 2026-08-13
-**Current Work:** M0 — Walking Skeleton. T1–T4 done: repo initialized, dependencies pinned, Makefile skeleton, partition resolver. Next action: **T5** (pinned resumable downloader).
+**Current Work:** M0 — Walking Skeleton. T1–T5 done: repo initialized, dependencies pinned, Makefile skeleton, partition resolver, pinned resumable downloader. Next action: **T6** (streaming report iterator).
 
 ---
 
@@ -222,6 +222,9 @@ Compression is this extreme because nearly every column is low-cardinality and d
 | openFDA throughput | 11.6 MB/s (246 MB in 22 s) | timed download |
 | `fis.fda.gov` throughput | stalled (~13 MB in 180 s) | timed download |
 | Size by era | 2015+ = 90.7 GB · 2020+ = 62.5 GB | manifest, grouped by year |
+| `2025q1/0001-of-0028` | 162,319,793 bytes, sha256 `efe6edcc60e2…` | T5, downloaded and pinned 2026-08-13 |
+| Manifest `size_mb` is **MiB** | 162,319,793 B vs a stated `154.80` | T5, same download |
+| openFDA throughput, re-measured | 11.5 MB/s (162 MB in 14.1 s) | T5, `time hindsight fetch` |
 
 > ⚠️ Caveat, hardened by **L-006**: per-partition figures come from one partition, `2025q1/drug-event-0001-of-0034` — **which no longer exists.** The 2026-08-10 export chunks 2025q1 into 28 files, not 34. These figures are prior expectations, not reproducible measurements; T9 re-measures against `2025q1/0001-of-0028`. The corpus-level rows above (1,767 partitions, 111 GiB, 20,692,690 records) were re-verified against the manifest on 2026-08-13 and hold exactly.
 

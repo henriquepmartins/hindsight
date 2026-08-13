@@ -147,16 +147,24 @@ Expected: a `Partition` with a real URL and an export date matching STATE.md's v
 **Concept:** *Atomicity and idempotence.* A download that gets interrupted must not leave something a later run mistakes for complete — this is why you write to `.part` and rename only after verification (rename is atomic on POSIX; a partial write is not). Idempotence is what makes the whole pipeline safe to re-run, which is the property M1's crawler is built on.
 
 **Done when:**
-- [ ] First run downloads and writes the manifest entry
-- [ ] Second run detects the SHA-256 match and transfers zero bytes
-- [ ] `Ctrl-C` mid-download leaves only a `.part`; the next run does not treat it as complete
-- [ ] Mismatched SHA-256 raises and deletes the bad file
+- [x] First run downloads and writes the manifest entry
+- [x] Second run detects the SHA-256 match and transfers zero bytes
+- [x] `Ctrl-C` mid-download leaves only a `.part`; the next run does not treat it as complete
+- [x] Mismatched SHA-256 raises and deletes the bad file
+
+**Deviations from the original criteria, and why:**
+- **A CLI was needed to satisfy this task's own Verify block.** `uv run hindsight fetch` did not exist — T3's Makefile was written against a CLI nobody had built. Added `src/hindsight/cli.py` and a `[project.scripts]` entry. One command; `ingest` lands in T9.
+- **Resume is HTTP Range, but only against an existing pin.** Without a pin the first download *defines* it, so a leftover `.part` from an older export would be spliced in with nothing to catch it. With a pin, a bad prefix is caught by the SHA-256 and discarded. Measured: resuming from a real 60 MB prefix finished in 7.8 s vs 14.1 s cold, same digest.
+- **A mismatch after resuming names both causes.** The first version blamed openFDA for rewriting the partition, which is wrong when the local prefix was the corrupt half. Asserting one cause out of two is exactly the confident wrong answer this project is built to avoid.
+- **`size_mb` is MiB, not MB.** Measured: 162,319,793 bytes against a stated `154.80`. That closes the ambiguity T4 flagged as "worth 5%". The name is openFDA's; `Partition.size_mb` now says so and stays advisory.
 
 **Verify:**
 ```bash
-time uv run hindsight fetch 2025q1/0001-of-0028   # ~22 s, per STATE.md's 11.6 MB/s
-time uv run hindsight fetch 2025q1/0001-of-0028   # < 1 s, prints "cached"
+uv run pytest tests/test_fetch.py -q            # 11 passed, no network
+time uv run hindsight fetch 2025q1/0001-of-0028   # 14.1 s, 162,319,793 bytes
+time uv run hindsight fetch 2025q1/0001-of-0028   # 1.1 s, prints "cached"
 ```
+The cached run is 1.1 s rather than the "< 1 s" first written here, and the reason matters: ~1.0 s of it is `resolve()` re-fetching the 590 KB manifest. Hashing 155 MB is the cheap part. `load_export()` is what fixes this when M1 fetches in bulk.
 
 **Commit:** `feat(fetch): pinned resumable partition download`
 
