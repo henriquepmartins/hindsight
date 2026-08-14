@@ -1,15 +1,3 @@
-"""openFDA's bulk-export manifest, resolved into pinned partitions.
-
-Ids are derived from the download URL, since the manifest carries none:
-
-    .../drug/event/2025q1/drug-event-0001-of-0028.json.zip -> 2025q1/0001-of-0028
-
-The bucket is not always a quarter — `all_other/` holds undatable reports — and
-the `-of-NNNN` suffix is not stable across exports (L-006).
-
-Nothing here writes to disk. Pinning happens in fetch.py.
-"""
-
 from __future__ import annotations
 
 import re
@@ -29,34 +17,20 @@ _PARTITION_URL = re.compile(
 )
 
 
-# --- errors -----------------------------------------------------------------
-
-
 class ManifestError(Exception):
-    """Base for every failure in this module."""
+    pass
 
 
 class PartitionNotFound(ManifestError):
-    """No partition in the export matched the requested id."""
+    pass
 
 
 class UnexpectedManifestShape(ManifestError):
-    """openFDA moved something. Raised instead of a bare KeyError, so the
-    message can name what changed."""
-
-
-# --- model ------------------------------------------------------------------
+    pass
 
 
 @dataclass(frozen=True)
 class Partition:
-    """One bulk-export file, ready to fetch.
-
-    `size_mb` is the manifest's own figure — a string with two decimals, and
-    despite the name it is MiB: T5 measured 162,319,793 bytes against a stated
-    154.80. Advisory only. The real byte count comes from the download.
-    """
-
     id: str
     url: str
     export_date: date
@@ -65,22 +39,11 @@ class Partition:
 
     @property
     def stem(self) -> str:
-        """The id as one path component: `2025q1/0001-of-0028` -> `2025q1-0001-of-0028`.
-
-        The pin and the schema file are named for the same partition, so they
-        are named by the same rule and sort next to each other on disk.
-        """
         return self.id.replace("/", "-")
 
 
 @dataclass(frozen=True)
 class Export:
-    """Every partition from a single manifest fetch, sharing one date.
-
-    Resolving partitions in separate calls lets them straddle two exports.
-    This makes one export per run structural (L-006).
-    """
-
     export_date: date
     partitions: dict[str, Partition]
 
@@ -96,7 +59,6 @@ class Export:
         return found
 
     def _bucket_contents(self, partition_id: str) -> str:
-        """What the bucket does hold. A stale suffix is likelier than a typo."""
         bucket = partition_id.split("/")[0]
         siblings = sorted(pid for pid in self.partitions if pid.startswith(f"{bucket}/"))
 
@@ -112,15 +74,7 @@ class Export:
         )
 
 
-# --- parsing ----------------------------------------------------------------
-
-
 def _at(node: object, *path: str) -> object:
-    """Walk down `path`, or raise naming the trail.
-
-    Not a .get chain: that returns {} on a renamed key and pushes the failure
-    into the caller, far from what actually broke.
-    """
     for depth, key in enumerate(path):
         if not isinstance(node, dict) or key not in node:
             trail = " -> ".join(path[:depth]) or "(top level)"
@@ -136,7 +90,6 @@ def _at(node: object, *path: str) -> object:
 
 
 def _parse_date(raw: object) -> date:
-    """A date, not a string: "2026-8-9" sorts above "2026-08-10"."""
     if not isinstance(raw, str):
         raise UnexpectedManifestShape(
             f"export_date should be a string, got {type(raw).__name__}: {raw!r}"
@@ -194,9 +147,6 @@ def _parse_partitions(entries: object, export_date: date) -> dict[str, Partition
     return {partition.id: partition for partition in parsed}
 
 
-# --- api --------------------------------------------------------------------
-
-
 def _fetch_manifest() -> dict:
     response = httpx.get(DOWNLOAD_MANIFEST_URL, timeout=REQUEST_TIMEOUT_SECONDS)
     response.raise_for_status()
@@ -205,15 +155,6 @@ def _fetch_manifest() -> dict:
 
 
 def load_export() -> Export:
-    """Every drug/event partition openFDA publishes, in one request.
-
-    Prefer this to `resolve` in a loop: the manifest is ~590 KB and lists
-    1,767 partitions.
-
-    Raises:
-        UnexpectedManifestShape: the manifest moved. Never a partial Export.
-        httpx.HTTPError: the manifest could not be fetched.
-    """
     manifest = _fetch_manifest()
 
     export_date = _parse_date(_at(manifest, *_SECTION_PATH, "export_date"))
@@ -226,9 +167,4 @@ def load_export() -> Export:
 
 
 def resolve(partition_id: str) -> Partition:
-    """One partition, e.g. "2025q1/0001-of-0028". Re-fetches the manifest.
-
-    Raises:
-        PartitionNotFound: no match. The message lists what the bucket holds.
-    """
     return load_export().partition(partition_id)

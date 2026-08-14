@@ -1,10 +1,3 @@
-"""Downloading and pinning, without the network.
-
-The four properties T5 exists for: a second run transfers nothing, an
-interrupted run is never mistaken for a complete one, a rotted local file is
-caught, and bytes that changed under a pin are refused.
-"""
-
 import json
 from datetime import date
 
@@ -48,8 +41,6 @@ class _Response:
 
 
 class _Server:
-    """A stand-in for openFDA that records every request and honours Range."""
-
     def __init__(self, body: bytes):
         self.body = body
         self.requests: list[dict] = []
@@ -77,8 +68,6 @@ def server(monkeypatch):
 
 @pytest.fixture
 def store(tmp_path):
-    """Somewhere to put data/raw and data/manifest that is not the repo."""
-
     def _ensure(partition):
         return f.ensure_local(
             partition,
@@ -90,9 +79,6 @@ def store(tmp_path):
     _ensure.pins = tmp_path / "manifest"
 
     return _ensure
-
-
-# --- the happy path ---------------------------------------------------------
 
 
 def test_first_run_downloads_and_writes_the_pin(server, store, partition):
@@ -122,9 +108,6 @@ def test_nothing_is_left_behind_on_success(server, store, partition):
     store(partition)
 
     assert [p.name for p in store.raw.iterdir()] == ["2025q1-0001-of-0028.zip"]
-
-
-# --- an interrupted run -----------------------------------------------------
 
 
 def test_a_leftover_part_file_is_not_treated_as_complete(server, store, partition):
@@ -162,9 +145,6 @@ def test_a_server_ignoring_range_restarts_cleanly(monkeypatch, server, store, pa
     assert store(partition).read_bytes() == BODY
 
 
-# --- bytes that disagree with the pin ---------------------------------------
-
-
 def test_a_rotted_local_file_is_deleted_and_raises(server, store, partition):
     archive = store(partition)
     archive.write_bytes(b"corrupted")
@@ -189,9 +169,6 @@ def test_a_partition_rewritten_in_place_is_refused(server, store, partition):
 
 
 def test_a_mismatch_after_resuming_names_both_causes(server, store, partition):
-    """A resumed download has two ways to end up wrong, and the message must
-    not pick one. Asserting "openFDA rewrote it" over a corrupt local prefix is
-    the kind of confident wrong answer this project exists to avoid."""
     store(partition)
 
     archive = store.raw / "2025q1-0001-of-0028.zip"

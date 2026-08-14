@@ -1,16 +1,3 @@
-"""Download a partition once, and pin what came back.
-
-openFDA publishes no checksum, so the first download defines the pin. It lands
-in data/manifest/ as {id, url, export_date, sha256, bytes} and is committed —
-together with schema/, that file *is* the reproducibility claim (AD-008). Every
-later run checks the bytes on disk against it.
-
-Atomicity is the point of the .part file. Bytes are renamed into place only
-after the hash is computed, and rename is atomic on POSIX while a partial write
-is not. An interrupted run therefore cannot leave something a later run reads
-as complete.
-"""
-
 from __future__ import annotations
 
 import hashlib
@@ -34,29 +21,16 @@ DOWNLOAD_TIMEOUT_SECONDS = 60.0
 log = logging.getLogger(__name__)
 
 
-# --- errors -----------------------------------------------------------------
-
-
 class FetchError(Exception):
-    """Base for every failure in this module."""
+    pass
 
 
 class ChecksumMismatch(FetchError):
-    """Bytes on disk disagree with the pin. Either the local file rotted, or
-    openFDA rewrote the partition in place."""
-
-
-# --- model ------------------------------------------------------------------
+    pass
 
 
 @dataclass(frozen=True)
 class Pin:
-    """What makes a partition re-fetchable: where it came from, and when.
-
-    `export_date` is here because of L-006 — openFDA re-chunks buckets, so a
-    URL alone can 404. The pin is only valid within its own export.
-    """
-
     id: str
     url: str
     export_date: date
@@ -94,11 +68,7 @@ def _write_pin(path: Path, pin: Pin) -> None:
     path.write_text(json.dumps(record, indent=2) + "\n")
 
 
-# --- bytes ------------------------------------------------------------------
-
-
 def _sha256(path: Path) -> tuple[str, int]:
-    """Hash a file without holding it in memory. Returns (digest, byte count)."""
     digest = hashlib.sha256()
     size = 0
 
@@ -111,11 +81,6 @@ def _sha256(path: Path) -> tuple[str, int]:
 
 
 def _download(url: str, destination: Path, resume: bool) -> bool:
-    """Stream `url` into `destination`, continuing from its end if resuming.
-
-    Returns whether it actually resumed, which the caller needs to diagnose a
-    checksum mismatch honestly.
-    """
     start = destination.stat().st_size if resume and destination.exists() else 0
     headers = {"Range": f"bytes={start}-"} if start else {}
 
@@ -128,8 +93,6 @@ def _download(url: str, destination: Path, resume: bool) -> bool:
     ) as response:
         response.raise_for_status()
 
-        # A server that ignores Range replies 200 with the whole body, so the
-        # bytes already on disk have to be thrown away rather than appended to.
         resumed = bool(start) and response.status_code == httpx.codes.PARTIAL_CONTENT
 
         with destination.open("ab" if resumed else "wb") as out:
@@ -139,26 +102,12 @@ def _download(url: str, destination: Path, resume: bool) -> bool:
     return resumed
 
 
-# --- api --------------------------------------------------------------------
-
-
 def ensure_local(
     partition: Partition,
     *,
     raw_dir: Path = RAW_DIR,
     pin_dir: Path = PIN_DIR,
 ) -> Path:
-    """Return a local path to `partition`, downloading it only if needed.
-
-    Idempotent: a second call on matching bytes transfers nothing. This is the
-    property M1's crawler is built on.
-
-    Raises:
-        ChecksumMismatch: the local file, or what openFDA served, disagrees
-            with the recorded pin. The bad file is deleted.
-        FetchError: the pin on disk could not be read.
-        httpx.HTTPError: the download failed.
-    """
     archive = raw_dir / f"{partition.stem}.zip"
     pin_path = pin_dir / f"{partition.stem}.json"
     pin = _read_pin(pin_path)
@@ -184,9 +133,6 @@ def ensure_local(
 
     log.info("downloading %s (%.1f MB)", partition.id, partition.size_mb)
 
-    # Resume only against a known pin. Without one the first download *defines*
-    # the pin, and a leftover .part from an older export would be spliced in
-    # with nothing to catch it.
     resumed = _download(partition.url, partial, resume=pin is not None)
 
     digest, size = _sha256(partial)

@@ -1,12 +1,3 @@
-"""Every corpus here is small enough to count on paper.
-
-The module makes one judgement — how many drugs is too many — and a judgement
-tested against a second query written the same afternoon is not tested at all.
-So the expected values below are worked out by hand, and the one case that has
-bitten this project before gets its own test: a report naming the same drug
-twice is one drug, not two (L-009).
-"""
-
 from pathlib import Path
 
 import pyarrow as pa
@@ -18,10 +9,6 @@ from hindsight.analysis.prr import PrrError
 
 
 def corpus(root: Path, reports: dict[str, list[str]]) -> Path:
-    """One partition's drug table from `{report_id: [drug, ...]}`.
-
-    A list and not a set, because repetition is the shape being tested.
-    """
     directory = root / "year=2025" / "quarter=1" / "part=0001-of-0001"
     directory.mkdir(parents=True, exist_ok=True)
 
@@ -41,9 +28,6 @@ def corpus(root: Path, reports: dict[str, list[str]]) -> Path:
     return directory
 
 
-# --- how wide the reports are ------------------------------------------------
-
-
 def test_breadth_reports_the_middle_and_the_tail(tmp_path):
     corpus(tmp_path, {"1": ["A"], "2": ["A", "B"], "3": list("ABCDE")})
 
@@ -55,7 +39,6 @@ def test_breadth_reports_the_middle_and_the_tail(tmp_path):
 
 
 def test_a_drug_named_twice_in_one_report_is_one_drug(tmp_path):
-    """L-009, from the other side. 862 copies of INFLIXIMAB are one product."""
     corpus(tmp_path, {"1": ["A", "A", "A", "A"], "2": ["A", "B"]})
 
     assert breadth(root=tmp_path)["widest"] == 2
@@ -76,9 +59,6 @@ def test_a_quantile_outside_the_interval_is_refused(tmp_path, quantile):
         breadth(quantile=quantile, root=tmp_path)
 
 
-# --- the reports above the cut -----------------------------------------------
-
-
 def test_wide_reports_are_inclusive_of_the_cut_and_widest_first(tmp_path):
     corpus(tmp_path, {"narrow": ["A"], "exactly": ["A", "B"], "wide": list("ABCD")})
 
@@ -91,11 +71,7 @@ def test_nothing_reaches_an_impossible_cut(tmp_path):
     assert wide_reports(cut=99, root=tmp_path) == []
 
 
-# --- how much two reports overlap --------------------------------------------
-
-
 def test_jaccard_is_the_shared_over_the_union(tmp_path):
-    """A,B,C against B,C,D: two shared, four in the union, so 0.5."""
     corpus(tmp_path, {"1": list("ABC"), "2": list("BCD")})
 
     assert overlap(["1", "2"], root=tmp_path) == [("1", "2", 0.5)]
@@ -111,7 +87,6 @@ def test_identical_lists_score_one_and_disjoint_ones_score_zero(tmp_path):
 
 
 def test_each_unordered_pair_appears_once(tmp_path):
-    """Three reports make three comparisons, not six and not nine."""
     corpus(tmp_path, {"1": ["A"], "2": ["A"], "3": ["A"]})
 
     assert len(overlap(["1", "2", "3"], root=tmp_path)) == 3

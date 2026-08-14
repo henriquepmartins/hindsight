@@ -1,27 +1,3 @@
-"""What the write actually produced, as a file a later run can compare against.
-
-Three numbers per partition matter enough to be recorded rather than remembered
-(L-004), because each one caps a milestone before it is planned:
-
-- `drugstartdate` is present on ~20% of drug rows, so M3's time-to-onset
-  analysis can only ever run on a fifth of the data
-- UNII is present on ~83%, so the remaining ~17% is M2's entity-resolution
-  workload, quantified instead of estimated
-- `companynumb` is the field the spike's keep-list dropped from 89.6% of
-  reports (L-005), and its coverage is the cheapest standing check that it is
-  still travelling
-
-Everything here is measured by reading the Parquet back with DuckDB rather than
-by counting in memory during the write. A counter measures the loop; a query
-measures the artifact, and the artifact is what the claim is about. It also
-means anyone holding the files can re-run these numbers without re-running
-the pipeline.
-
-A column absent from the schema reports `null`, not zero and not an error. A
-2005-era partition may carry no `unii` at all (spec, P2) — that is a difference
-to write down, and it is not the same fact as a column that exists and is empty.
-"""
-
 from __future__ import annotations
 
 import json
@@ -49,17 +25,10 @@ UNII = "unii"
 
 
 def _parquet(directory: Path, table: str) -> str:
-    """A table's file as a SQL literal.
-
-    The path is built from a partition id that `manifest.resolve` already
-    matched against openFDA's own URL pattern, so there is nothing here a
-    quote could escape into.
-    """
     return f"'{directory / f'{table}.parquet'}'"
 
 
 def _rate(matched: int, total: int) -> float | None:
-    """A coverage rate, or None when there is nothing to take a rate of."""
     return round(matched / total, 4) if total else None
 
 
@@ -70,7 +39,6 @@ def _column_coverage(
     column: str,
     schemas: Schemas,
 ) -> int | None:
-    """How many rows of `table` have a non-null `column`."""
     if not schemas.has_column(table, column):
         return None
 
@@ -82,15 +50,6 @@ def _column_coverage(
 def _unii_coverage(
     connection: duckdb.DuckDBPyConnection, directory: Path, schemas: Schemas
 ) -> int | None:
-    """How many drug rows resolve to an openfda block carrying a UNII.
-
-    A drug row holds no UNII of its own — it holds a key into `dim_openfda`, so
-    this is a join, and the number it produces is the share of drug rows with a
-    canonical substance identifier. The rest is what M2 has to resolve by name.
-
-    `len(...) > 0` rather than a null test: a block can carry the field as an
-    empty list, and an empty list is not an identifier.
-    """
     if not schemas.has_column(OPENFDA_TABLE, UNII):
         return None
 
@@ -112,12 +71,6 @@ def snapshot(
     zip_bytes: int,
     json_bytes: int,
 ) -> dict:
-    """Row counts, coverage rates and compression, read back off the disk.
-
-    Row counts come from the files rather than from `written.rows`, which is the
-    point: the two agreeing is what says the rows survived encoding, and the
-    caller compares the report count against the manifest's own `records`.
-    """
     connection = duckdb.connect()
     directory = written.directory
 
@@ -166,7 +119,6 @@ def snapshot(
 
 
 def save(directory: Path, metrics: dict) -> Path:
-    """Write `metrics.json` beside the Parquet it describes."""
     path = directory / METRICS_FILE
     path.write_text(json.dumps(metrics, indent=2) + "\n")
 

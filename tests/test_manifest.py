@@ -1,18 +1,8 @@
-"""Manifest parsing, without the network.
-
-T4's verify block covers the happy path against the live endpoint, which CI
-cannot run. What is left is the part M1 depends on: a stale id, and a manifest
-whose shape moved.
-"""
-
 from datetime import date
 
 import pytest
 
 from hindsight import manifest as m
-
-
-# --- builders ---------------------------------------------------------------
 
 
 def an_entry(
@@ -53,9 +43,6 @@ def load(monkeypatch):
         return m.load_export()
 
     return _load
-
-
-# --- parsing ----------------------------------------------------------------
 
 
 def test_load_export_parses_every_partition(load):
@@ -103,9 +90,6 @@ def test_resolve_delegates_to_the_export(monkeypatch):
     assert m.resolve("2025q1/0001-of-0028").records == 12000
 
 
-# --- a partition that is not there ------------------------------------------
-
-
 def test_stale_suffix_reports_what_the_bucket_actually_holds(load):
     export = load(
         a_manifest(
@@ -133,9 +117,6 @@ def test_unknown_bucket_says_the_bucket_is_missing(load):
 
     with pytest.raises(m.PartitionNotFound, match="No bucket '1999q1'"):
         export.partition("1999q1/0001-of-0001")
-
-
-# --- a manifest that moved --------------------------------------------------
 
 
 @pytest.mark.parametrize(
@@ -219,7 +200,5 @@ def test_an_unreadable_manifest_raises_rather_than_returning_none(load, doc, exp
 
 
 def test_a_single_bad_entry_fails_the_whole_export(load):
-    """A partial Export would let a later stage read a short partition list as
-    complete. Failing here is AD-011: drift is structural, not opt-in."""
     with pytest.raises(m.UnexpectedManifestShape):
         load(a_manifest([an_entry(), {"file": "https://example.com/nope.zip"}]))

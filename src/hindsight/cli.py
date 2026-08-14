@@ -1,16 +1,3 @@
-"""`hindsight <command>` — the entry point the Makefile calls.
-
-Three commands. `fetch` pins one partition; `ingest` takes it the rest of the
-way to Parquet, and is where the two passes are wired together in the order
-design.md draws them: infer the schema from every record, freeze it to a file,
-then write against the file. `analyze` reads the result back and ranks
-drug–event pairs by PRR.
-
-The wiring is the only thing here. Every rule this pipeline is held to lives in
-the module that owns it, so a reader who wants to know what happens to a field
-does not have to start in the CLI.
-"""
-
 from __future__ import annotations
 
 import argparse
@@ -42,18 +29,10 @@ log = logging.getLogger(__name__)
 
 
 class IngestError(Exception):
-    """The partition on disk is not the partition the manifest describes."""
+    pass
 
 
 def _schemas(partition: Partition, archive: Path, *, reinfer: bool) -> Schemas:
-    """The frozen schema for this partition, inferred only if it is not on disk.
-
-    Pass 1 is skipped on a re-run because the file *is* the schema — re-deriving
-    it every time would make the committed artifact decorative, and a schema
-    that is recomputed silently is no longer something a reviewer approved.
-    Anything the data has and the file does not now raises in pass 2, which is
-    the drift check M1 grows out of.
-    """
     path = SCHEMA_DIR / f"{partition.stem}.json"
 
     if path.exists() and not reinfer:
@@ -78,7 +57,6 @@ def _schemas(partition: Partition, archive: Path, *, reinfer: bool) -> Schemas:
 
 
 def _report(summary: dict) -> None:
-    """The numbers a reviewer wants without opening the JSON."""
     rows = summary["rows"]
     coverage = summary["coverage"]
 
@@ -100,11 +78,6 @@ def _report(summary: dict) -> None:
 
 
 def _ingest(partition_id: str, *, reinfer: bool) -> None:
-    """Fetch, infer, write, measure.
-
-    Raises:
-        IngestError: the written report count disagrees with the manifest.
-    """
     partition = resolve(partition_id)
     archive = ensure_local(partition)
     schemas = _schemas(partition, archive, reinfer=reinfer)
@@ -125,8 +98,6 @@ def _ingest(partition_id: str, *, reinfer: bool) -> None:
 
     _report(summary)
 
-    # The manifest's own count, not a constant: the last partition of a quarter
-    # is a remainder — 2025q1/0028-of-0028 holds 3,230, not 12,000.
     if summary["rows"][REPORT_TABLE] != partition.records:
         raise IngestError(
             f"{written.directory} holds {summary['rows'][REPORT_TABLE]:,} report "
@@ -136,12 +107,6 @@ def _ingest(partition_id: str, *, reinfer: bool) -> None:
 
 
 def _pairs(pairs: list[Pair], *, min_count: int) -> None:
-    """The ranking, with the 2×2 beside every ratio and the caveats under it.
-
-    The caveats are printed rather than left to the reader because they are the
-    difference between a result and a claim: these are raw `medicinalproduct`
-    strings over one partition of undeduplicated spontaneous reports.
-    """
     if not pairs:
         print(f"No drug-event pair reaches {min_count} co-reports.")
 

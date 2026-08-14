@@ -1,12 +1,3 @@
-"""The CSV is the only thing the published page reads, so its shape is a
-contract and not an implementation detail.
-
-Two properties matter more than the rest. The file has to carry the provenance
-of the numbers in it, because nothing else can stop the page and the pipeline
-from drifting apart. And it has to contain **every** pair rather than the CLI's
-top 20, because a scatter plot drawn from its own summit is a dot.
-"""
-
 import csv
 import json
 from pathlib import Path
@@ -25,7 +16,6 @@ def corpus(
     *,
     metrics: bool = True,
 ) -> Path:
-    """One partition from `{report_id: (drugs, events)}`, with its metrics."""
     directory = root / "year=2025" / "quarter=1" / "part=0001-of-0001"
     directory.mkdir(parents=True, exist_ok=True)
 
@@ -61,7 +51,6 @@ def corpus(
 
 @pytest.fixture
 def three_pairs(tmp_path):
-    """Three reports sharing one drug and one event, so one pair reaches a = 3."""
     corpus(
         tmp_path / "parquet",
         {str(n): (["ASPIRIN"], ["Headache"]) for n in range(3)},
@@ -71,13 +60,6 @@ def three_pairs(tmp_path):
 
 
 def written(root: Path, **kwargs):
-    """Write the file, then read it back with the standard library.
-
-    Deliberately not pandas. pandas lives in the `viz` group, which CI does not
-    install (AD-015) — the first CI run failed on exactly that, and the fix is
-    not to widen the group. These tests assert what the *file* contains, and a
-    reader that types the columns for you is testing the reader.
-    """
     path = root / "out.csv"
     result = write_csv(path, root=root / "parquet", **kwargs)
 
@@ -85,9 +67,6 @@ def written(root: Path, **kwargs):
         rows = list(csv.DictReader(line for line in handle if not line.startswith("#")))
 
     return result, rows, path.read_text()
-
-
-# --- provenance --------------------------------------------------------------
 
 
 def test_the_header_carries_what_produced_the_rows(three_pairs):
@@ -101,20 +80,13 @@ def test_the_header_carries_what_produced_the_rows(three_pairs):
 
 
 def test_a_partition_with_no_metrics_refuses_rather_than_guessing(tmp_path):
-    """The export date is the half that makes a partition id mean anything
-    (L-006), and only the ingest knows it."""
     corpus(tmp_path / "parquet", {"1": (["A"], ["X"])}, metrics=False)
 
     with pytest.raises(PrrError, match="export date"):
         write_csv(tmp_path / "out.csv", root=tmp_path / "parquet")
 
 
-# --- what lands in the file --------------------------------------------------
-
-
 def test_every_pair_is_written_not_only_the_top(tmp_path):
-    """Six reports naming five drugs and five events make 25 pairs. The CLI
-    would show 20 of them; the file has to hold all 25."""
     drugs = [f"D{n}" for n in range(5)]
     events = [f"E{n}" for n in range(5)]
     corpus(tmp_path / "parquet", {str(n): (drugs, events) for n in range(6)})
@@ -131,8 +103,6 @@ def test_the_columns_are_the_contract(three_pairs):
 
 
 def test_the_counts_survive_the_round_trip_as_numbers(three_pairs):
-    """QUOTE_ALL quotes the integers too, so the file has to carry text that is
-    still numeric — and the four cells still have to add up to the corpus."""
     _, rows, _ = written(three_pairs)
     cells = [int(rows[0][name]) for name in "abcd"]
 
@@ -141,8 +111,6 @@ def test_the_counts_survive_the_round_trip_as_numbers(three_pairs):
 
 
 def test_a_backslash_in_a_product_name_survives(tmp_path):
-    """`DESOGESTREL\\ETHINYL ESTRADIOL` is a real row, and a backslash is what
-    a dialect sniffer guesses wrong about."""
     corpus(
         tmp_path / "parquet",
         {str(n): ([r"A\B"], ["Headache"]) for n in range(3)},
@@ -164,12 +132,7 @@ def test_a_comma_in_an_event_name_survives(tmp_path):
     assert rows[0]["event"] == "Sleep disorder, insomnia type"
 
 
-# --- the crowding verdict ----------------------------------------------------
-
-
 def test_crowded_marks_pairs_whose_reports_name_many_drugs(tmp_path):
-    """One report names 40 drugs, the rest name one. The wide report's pairs are
-    the crowded ones and the narrow report's are not."""
     reports = {str(n): (["ASPIRIN"], ["Headache"]) for n in range(3)}
     reports["wide"] = ([f"D{n}" for n in range(40)], ["Rash"])
     corpus(tmp_path / "parquet", reports)
@@ -193,8 +156,6 @@ def test_the_cut_moves_with_the_quantile(tmp_path):
 
 
 def test_the_file_is_read_back_before_it_is_called_written(three_pairs):
-    """The write verifies itself, so a malformed file fails here and not in a
-    render workflow on a machine with no partition to regenerate from."""
     result, rows, _ = written(three_pairs)
 
     assert result.pairs == len(rows)
