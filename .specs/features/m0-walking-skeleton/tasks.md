@@ -807,10 +807,11 @@ The cost of that, stated rather than discovered later: **the site can disagree w
 **Concept:** *Reproducibility is a claim you test, not one you make.* Your machine has state — a cached download, an env var, a package you installed and forgot. A clean clone in a fresh directory is the only honest check, and it is where most "works on my machine" projects quietly fail.
 
 **Done when:**
-- [ ] Fresh clone in a temp dir + `make all` → rendered site, no manual steps
-- [ ] Under 15 min end to end
-- [ ] Peak RSS recorded and under 500 MB
-- [ ] README updated with real measured numbers
+- [x] Fresh clone in a temp dir + `make all` → rendered site, no manual steps — and the CSV it writes is byte-identical to the committed one
+- [x] Under 15 min end to end — **47.4 s**
+- [x] Peak RSS recorded and under 500 MB — **324.5 MB** for the whole chain; 219 MB for ingestion alone
+- [x] README updated with real measured numbers
+- [x] Row-group size decided — **stays 2000**, by the rule design.md already carried
 
 **Verify:**
 ```bash

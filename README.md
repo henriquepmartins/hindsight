@@ -24,11 +24,22 @@ Esse backtest é o ponto inteiro. É a diferença entre "construí uma coisa" e 
 
 ## Status
 
-**M0 quase fechado.** O pipeline roda de ponta a ponta sobre uma partição e publica uma página com um gráfico real. Faltam duas tarefas: `make all` a partir de um clone limpo, e a checagem de deriva contra uma partição de 2005.
+**M0 fechado.** O pipeline roda de ponta a ponta sobre uma partição e publica uma página com um gráfico real.
+
+Um clone limpo, um comando:
+
+```bash
+git clone https://github.com/henriquepmartins/hindsight && cd hindsight
+make all
+```
+
+**47 s do checkout vazio ao site renderizado, com pico de 325 MB de memória** — medido com `/usr/bin/time -l` num clone recém-feito, contra um teto de projeto de 500 MB e um orçamento de 15 min. O CSV que a página publica sai byte a byte igual ao versionado no repositório, que é o que torna a página verificável em vez de confiável.
+
+Ressalva honesta: o cache de pacotes do `uv` estava quente. Numa máquina que nunca viu essas dependências, some o tempo de baixá-las.
 
 | Milestone | O que entrega | Status |
 |---|---|---|
-| **M0** Esqueleto ambulante | Uma partição por todas as camadas → uma página pública | 🟡 T1–T17 feitos, faltam T18–T19 |
+| **M0** Esqueleto ambulante | Uma partição por todas as camadas → uma página pública | ✅ Fechado |
 | **M1** Corpus completo | Os 20,7M de relatórios, atualizando sozinho | ⬜ Planejado |
 | **M2** Limpeza e resolução de entidades | "Tylenol" e "paracetamol" viram um medicamento só | ⬜ Planejado |
 | **M3** Detecção de sinal | PRR / ROR / shrinkage bayesiano em cada par | ⬜ Planejado |
@@ -63,6 +74,8 @@ Puxando ele para uma tabela de dimensão e medindo numa partição real:
 | **Parquet, ZSTD-9** | **4,62 MB** |
 
 **175× menor que o JSON, 35× menor que a origem comprimida — e comprovadamente sem perdas.**
+
+A razão depende da era, e o tamanho anda ao contrário dela. A partição mais antiga do export, de 2004q1, comprime **78,8×** — e ainda assim sai **menor**, 2,78 MB, porque a fonte é menos redundante para começar. Sobre os 20,7M de relatórios, só as tabelas de fato projetam **1,7 a 3,6 GB**.
 
 Não "sem perdas" como afirmação. O pipeline reconstrói o JSON aninhado original a partir das tabelas normalizadas e compara com a fonte, relatório por relatório: **12.000 de 12.000 idênticos byte a byte, zero divergências.**
 

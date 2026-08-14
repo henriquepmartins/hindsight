@@ -209,6 +209,6 @@ hindsight/
 | Question | Resolve at |
 |---|---|
 | Is `sha1[:16]` enough for the dimension key? | T7 asserts no collision on the partition. If it ever fires, widen to 32 |
-| Row-group size of 2000 — right? | T18 measures. Only tune if peak RSS is near the ceiling |
+| ~~Row-group size of 2000 — right?~~ | **Resolved by T18: keep 2000.** Measured on the 2025 partition — 2000 → 219 MB RSS / 4.62 MB (175×) · 6000 → 299 MB / 4.23 MB (191×) · 12000 → 421 MB / 4.06 MB (199×). The rule this row already stated was *only tune if peak RSS is near the ceiling*, and 219 MB of 500 is not near it. 12000 buys 12% of output size for 200 MB of headroom and collapses the partition to a single row group, which is also the end of row-group pruning |
 | Which 2005-era partition id? | T19, from the manifest. openFDA starts 2004q1; note the non-quarter `all_other/` bucket (L-006) |
 | Does openFDA carry every FAERS ASCII field? | Deferred to M1 (AD-002 todo). M0 doesn't need it |
