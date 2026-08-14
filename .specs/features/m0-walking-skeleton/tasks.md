@@ -649,23 +649,38 @@ No excluded term appears, every row carries its 2×2, PRR descends, and the whol
 
 ---
 
-### T14: Analysis notebook
+### T14: Analysis notebooks and the M0 report
 
-**What:** A Jupyter notebook that reads the Parquet with DuckDB, runs T13, and produces one chart. Limitations text **above** the chart.
-**Where:** `notebooks/m0_finding.ipynb`
+**What:** Three numbered notebooks recording the analyses that actually ran, and one report that becomes the site page. Split and reshaped by **AD-015** (matplotlib + seaborn in a `viz` group) and **AD-016** (the two artifacts have different readers and different rules).
+**Where:** `notebooks/01-exclusion-list.ipynb`, `02-prr-ranking.ipynb`, `03-duplicate-cluster.ipynb`, `reports/m0.qmd`, `reports/data/prr_top.csv`, `src/hindsight/analysis/`
 **Depends on:** T13 · **Requirement:** M0-14
 
-**Concept:** *The notebook as a rendered artifact, not a scratchpad.* It has to run top-to-bottom on a clean kernel, because Quarto executes it in CI. Any hidden state that only exists because you ran cells out of order will fail the build — which is the discipline that separates a notebook you can publish from one you can only demo.
+**Concept:** *The notebook as a rendered artifact, not a scratchpad.* Everything here runs top-to-bottom on a clean kernel. Hidden state that exists only because cells ran out of order is what separates a notebook you can publish from one you can only demo — and the report has a second reason, which is that Quarto executes it in CI where nothing has been run before.
+
+**Why three notebooks and not four.** M0's exploration did not happen in notebooks. It happened in T4–T13, in modules with tests, and the findings are L-005 through L-010. Numbering notebooks to match a narrative arc would mean inventing the ones that did not occur — the shape of an exploration workflow without the content. Three analyses genuinely ran, at the CLI and the REPL rather than in a notebook, and reproducing those three is a record rather than a reconstruction.
 
 **Done when:**
-- [ ] Restart-and-run-all works from a clean kernel
-- [ ] One chart, readable, axes labeled, with the counts visible
-- [ ] Limitations appear before the result: one partition · no entity resolution · no causal claim · min count 3
-- [ ] No absolute paths
+- [ ] `pyproject.toml` gains a `viz` group (matplotlib, seaborn, jupyter, ipykernel). `uv sync` without it still runs the whole test suite
+- [ ] `hindsight analyze --csv` writes `reports/data/prr_top.csv`, whose header carries the partition id, the `export_date` and the `min_count` that produced it
+- [ ] Cluster identification is a tested module under `src/hindsight/analysis/`, not inline notebook code
+- [ ] Three notebooks, restart-and-run-all clean, outputs committed, readable on GitHub without running anything
+- [ ] `reports/m0.qmd` renders from the committed CSV alone — no `data/parquet/`, no network, no absolute paths
+- [ ] The report is **≤ 400 words of prose**, budgeted 40 problem+objective · 90 data · 100 analysis · 120 result
+- [ ] Every heading asserts something. No heading is a template label
+- [ ] Limitations close the analysis section, immediately before the result: one partition · no entity resolution · no deduplication · no causal claim · min count 3
+- [ ] One chart: pairs as points, x = `a`, y = PRR on a log scale, the duplicate cluster in the accent. Axes labelled, counts legible
+- [ ] The palette is Okabe-Ito and the chart survives greyscale — the accent differs by opacity and marker size, not by hue alone
 
-**Verify:** Restart kernel → Run All → no errors. Then `git stash` any uncommitted state and re-run.
+**Verify:**
+```bash
+uv run --group viz jupyter execute notebooks/*.ipynb   # clean kernel, no errors
+uv run hindsight analyze --csv
+uv run --group viz quarto render reports/m0.qmd
+uv run pytest -q                                       # unchanged without the viz group
+```
+Then read the rendered page in greyscale and confirm the accent is still the accent.
 
-**Commit:** `feat(notebook): M0 finding with limitations`
+**Commit:** `feat(report): M0 finding, three notebooks and one page`
 
 ---
 
@@ -673,7 +688,7 @@ No excluded term appears, every row carries its 2×2, PRR descends, and the whol
 
 ### T15: Quarto site
 
-**What:** `_quarto.yml` rendering the notebook to `_site/`, with the project title and the standing disclaimer in the footer.
+**What:** `_quarto.yml` rendering `reports/m0.qmd` to `_site/`, with the project title and the standing disclaimer in the footer.
 **Where:** `_quarto.yml`, `index.qmd`
 **Depends on:** T14 · **Requirement:** M0-15
 
@@ -681,6 +696,8 @@ No excluded term appears, every row carries its 2×2, PRR descends, and the whol
 - [ ] `quarto render` produces `_site/index.html` with the chart
 - [ ] The not-medical-advice disclaimer is in the footer of every page
 - [ ] `_site/` is gitignored
+- [ ] **The theme is light, fixed** (AD-016). seaborn's `darkgrid` panel is `#EAEAF2`; a dark page around it turns the chart into a cut-out window, and a transparent figure background loses the contrast guarantee the palette rule depends on
+- [ ] **Navigation is per milestone from the start**, with one entry today. The narrative arc runs across milestones, so the site is a book with chapters rather than five copies of one template — cheap to declare now, a refactor later
 
 **Verify:** `quarto render && open _site/index.html`
 
@@ -712,12 +729,16 @@ No excluded term appears, every row carries its 2×2, PRR descends, and the whol
 **Where:** `.github/workflows/publish.yml`
 **Depends on:** T15 · **Requirement:** M0-16
 
-Note: the workflow renders a notebook that reads `data/parquet/`, which is gitignored. **Commit the small aggregated PRR result** (a few KB CSV) as the notebook's input, rather than the corpus. The pipeline produces it; the site consumes it. Keeps CI hermetic and the repo small.
+Settled in T14: the workflow renders `reports/m0.qmd`, which reads the committed `reports/data/prr_top.csv` and never touches `data/parquet/`. The pipeline produces the CSV via `hindsight analyze --csv`; the site consumes it. CI stays hermetic and the repo stays small.
+
+The cost of that, stated rather than discovered later: **the site can disagree with the pipeline.** Someone edits the exclusion list, the number on the page does not move, and nothing fails. The CSV header carries the partition id, the `export_date` and the `min_count` that produced it, so the divergence is detectable by reading the file instead of being invisible.
 
 **Done when:**
 - [ ] Pages URL is live and public
 - [ ] Rebuilds on push to `main`
 - [ ] Works in a private window
+- [ ] Installs the `viz` group; the CI workflow of T16 does not
+- [ ] The three notebooks are **not** rendered or executed — they stay in the repo (AD-016)
 
 **Verify:** open the URL on your phone.
 
@@ -784,7 +805,8 @@ diff <(jq -S 'keys' schema/2005*.json) <(jq -S 'keys' schema/2025*.json)
 | T7, T8 | one function each, same file, cohesive | ✅ |
 | T9 | two modules, one contract | ⚠️ largest task at ~3 h — split into T9a schema / T9b sink if it stalls |
 | T10, T11 | one function, one test | ✅ |
-| T12–T14 | one artifact each | ✅ |
+| T12, T13 | one artifact each | ✅ |
+| T14 | five artifacts after AD-016 | ⚠️ now the second-largest task. Split into T14a notebooks / T14b report if the word budget fights back |
 | T15–T17 | one config each | ✅ |
 | T18, T19 | verification, not construction | ✅ |
 

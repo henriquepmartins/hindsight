@@ -1,7 +1,7 @@
 # State
 
 **Last Updated:** 2026-08-13
-**Current Work:** M0 — Walking Skeleton. T1–T12 done: repo initialized, dependencies pinned, Makefile skeleton, partition resolver, pinned resumable downloader, streaming report iterator, openfda dimension writer, record splitter, schema inference + Parquet sink, round-trip reconstructor, round-trip test, MedDRA exclusion list. **AD-013 is decided** — five tables, and a null `seq` on `report_duplicate` means the source carried a bare object. **The round trip closes and is now defended: 12,000 / 12,000 byte-identical, plus 13 tests over a committed 100-report fixture that CI can run without the partition.** Phase 3, the core of M0, is finished, and T12 curated 187 exclusion terms that clear the top of the ranking — what surfaces underneath is infliximab → sepsis, a real anti-TNF warning. **T12 also found the trap T13 walks into: one report carries 2,321 drug rows, and the naive join inflates the pair counts 2.2× (L-009).** T13 is written: PRR and χ² over a 2×2 of **distinct reports**, Evans as the screening criterion (AD-014), 0.13 s over the partition. **Its eye-check failed, and the failure is the milestone's finding — the top of the table is nine near-duplicate reports of one Canadian patient on ~90 drugs, and neither `drugcharacterization` nor Evans removes it (L-010).** Next action: **T14** (analysis notebook), which publishes that duplicate cluster as M0's result rather than the ranking.
+**Current Work:** M0 — Walking Skeleton. T1–T12 done: repo initialized, dependencies pinned, Makefile skeleton, partition resolver, pinned resumable downloader, streaming report iterator, openfda dimension writer, record splitter, schema inference + Parquet sink, round-trip reconstructor, round-trip test, MedDRA exclusion list. **AD-013 is decided** — five tables, and a null `seq` on `report_duplicate` means the source carried a bare object. **The round trip closes and is now defended: 12,000 / 12,000 byte-identical, plus 13 tests over a committed 100-report fixture that CI can run without the partition.** Phase 3, the core of M0, is finished, and T12 curated 187 exclusion terms that clear the top of the ranking — what surfaces underneath is infliximab → sepsis, a real anti-TNF warning. **T12 also found the trap T13 walks into: one report carries 2,321 drug rows, and the naive join inflates the pair counts 2.2× (L-009).** T13 is written: PRR and χ² over a 2×2 of **distinct reports**, Evans as the screening criterion (AD-014), 0.13 s over the partition. **Its eye-check failed, and the failure is the milestone's finding — the top of the table is nine near-duplicate reports of one Canadian patient on ~90 drugs, and neither `drugcharacterization` nor Evans removes it (L-010).** T13 is committed. Next action: **T14**, reshaped by **AD-015 and AD-016** — three numbered notebooks recording the analyses that actually ran, plus one ~350-word report at `reports/m0.qmd` that publishes the duplicate cluster as M0's result rather than the ranking.
 
 ---
 
@@ -117,6 +117,39 @@ The null `seq` is now stated in design.md as a contract rather than left as a pr
 **Trade-off:** it is more than T13's spec lists, and it borders M3. It is not shrinkage — no prior, no borrowing across pairs — so AD-006 and M3's scope are untouched.
 
 **Impact, and the part that matters:** **it does not clean this partition.** 24,299 of 28,540 pairs pass, and every implausible pair at the top clears it comfortably — χ² is large *because* the expected count is 0.015 (L-010). The criterion is shipped with that measurement attached rather than as a quality gate it cannot be. A reader who sees `signal = yes` on nail fungus and buprenorphine should conclude the input is wrong, not that the threshold is.
+
+### AD-015: matplotlib + seaborn, in a `viz` group the pipeline does not depend on (2026-08-14)
+
+**Decision:** charts are matplotlib with seaborn's `darkgrid` theme, declared in a `viz` dependency group rather than in `dependencies`. Plotly, Recharts and matplotlib-alone were considered and rejected.
+
+**Reason:** the same argument that chose Quarto in AD-009 — the notebook runs the DuckDB query and draws the chart in one process, and matplotlib is the only candidate native to that process. Recharts is React, which AD-004 already excluded and which would reintroduce the Node toolchain AD-009 rejected Evidence.dev to avoid. Plotly renders under Quarto but embeds ~3 MB of JavaScript per page to buy interactivity nothing on this site needs, and its tooltips are unreadable in the print-and-greyscale test the palette rule below is held to. matplotlib alone would work — `darkgrid` is five lines of `rcParams` — but seaborn ships calibrated palettes, and palette selection is the part most likely to be got wrong by someone reasoning from first principles about colour.
+
+**Trade-off:** four packages the pipeline never imports (matplotlib, seaborn, jupyter, ipykernel). Keeping them in a group rather than in `dependencies` is what stops CI from paying for them: T16 runs `pytest` and touches no chart, so only the render workflow installs the group.
+
+**Impact:** `uv sync` no longer installs everything by default. The Makefile and both workflows have to say which groups they want, which is a one-line cost that also makes the split legible.
+
+### AD-016: notebooks and the report are different artifacts with different rules (2026-08-14)
+
+**Decision:** a milestone produces **three or more numbered notebooks** in `notebooks/`, one per analysis that actually happened, and **one report** in `reports/<milestone>.qmd` that is the site page. The notebooks keep their outputs, stay in the repo, and are never rendered to the site. The report is held to a hard word budget and a fixed set of rules:
+
+- **~350 words of prose**, allocated 40 (problem and objective) · 90 (data) · 100 (analysis) · 120 (result). Fewer words, never fewer ideas.
+- **Headings assert something.** "The top of the table is one patient counted nine times", not "Results". A reader skims headings before deciding to read the body, so a heading spent on a template label is the most valuable line on the page wasted.
+- **Limitations close the analysis section**, immediately before the result.
+- **One chart.** Colour encodes exactly one variable, and the palette is Okabe-Ito — `#0072B2` for the body of the data, `#D55E00` for the accent, `#3C3C3C` for text. Those two hues sit at roughly 40% and 48% grey, so colour alone fails in greyscale: the accent carries opacity and marker size as well, and the difference survives as density rather than hue.
+- **Plotting code lives in the document, not in a module.** Calculation lives in a module with tests. The plotting is the only code in this project whose audience is the site's reader rather than the repo's reviewer, so it is written to be read: no helper function, no loop, no branch.
+
+**Reason:** the two artifacts have different readers and the same file cannot serve both. A notebook is a record — verbose, with the outputs attached, read by someone who already decided to look. The report is read by someone deciding whether to look at all, and every rule above is a defence of that reader's attention.
+
+The narrative arc — problem, objective, data, model, optimisation, analysis, result — runs **across milestones, not inside each document**. M0 is the data-assembly-and-first-analysis chapter and has no model, because AD-007 put the modelling in M3. This is what stops each milestone's page from being the same template filled in five times, and it is why M0's report does not manufacture a modelling section it has nothing to put in.
+
+**Trade-off:** the word budget will hurt. The round trip alone has more to say than 90 words, and the honest 12,000-word version of this page would be read by nobody.
+
+**Alternatives rejected:**
+- *One notebook per milestone, doing everything* — the format cannot hold both readers, and it is the layout the Cookiecutter convention exists to move away from.
+- *Notebooks numbered to match the arc, inventing the ones that did not happen* — it has the shape of an exploration workflow without the content. M0's exploration happened in T4–T13, in modules with tests, and the three notebooks are the three analyses that genuinely ran.
+- *Rendering the notebooks to the site alongside the report* — three raw notebooks beside the page would compete with it for the attention it needs undivided, and would put a 155 MB partition on CI's critical path.
+
+**Impact:** design.md's tree changes, T14 splits into notebooks plus a report, T15 fixes the site to a light theme (seaborn's `darkgrid` panel is `#EAEAF2` and needs a light page around it) with per-milestone navigation from the start, and T17 renders the report from a committed CSV rather than from `data/parquet/`. M1 onward inherits all of it without relitigating.
 
 ---
 
@@ -383,6 +416,7 @@ So it is one patient — or a very small number — on a long medication list, r
 - [ ] Verify B-002 ground-truth source before M2 completes — highest-risk unknown
 - [ ] Confirm openFDA field coverage vs. FAERS ASCII — **moved to M1** (AD-002). M0 does not need it
 - [ ] Decide the Bayesian shrinkage estimator (BCPNN vs. gamma-Poisson) once M3 begins
+- [ ] **Schedule AD-006's benchmark in M3.** The AD's case for skipping deep learning rests on "deliberately not using it *and benchmarking to show why*", and the benchmark was never put on the roadmap — which leaves the stronger half of the argument unevidenced. Gradient boosting against the shrinkage estimator, on the same pairs, publishing the result either way
 - [x] ~~Choose Quarto vs. Evidence.dev~~ — Quarto, AD-009
 - [ ] Confirm remote storage target at M1 start (AD-012 — HF Datasets front-runner)
 - [x] ~~Record the distinct-`openfda` count during T9~~ — 2,251, and L-003's numbers are now annotated rather than trusted

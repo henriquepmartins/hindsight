@@ -42,8 +42,9 @@ flowchart TD
     M --> N["pytest: assert byte-identical"]
 
     H & I & J & K --> O["DuckDB: 2×2 contingency → PRR"]
-    O --> P["notebooks/m0_finding.ipynb"]
-    P --> Q["Quarto render → GitHub Pages"]
+    O --> P1["notebooks/01..03 — analyses, repo only"]
+    O --> P2["reports/data/prr_top.csv — committed"]
+    P2 --> Q["reports/m0.qmd → Quarto → GitHub Pages"]
 ```
 
 ---
@@ -171,7 +172,13 @@ hindsight/
 │   └── manifest/             # committed — the pins
 ├── schema/                   # committed
 ├── reference/excluded_terms.csv
-├── notebooks/m0_finding.ipynb
+├── notebooks/                # analyses, outputs kept, never rendered to the site
+│   ├── 01-exclusion-list.ipynb
+│   ├── 02-prr-ranking.ipynb
+│   └── 03-duplicate-cluster.ipynb
+├── reports/
+│   ├── m0.qmd                # the site page — ~350 words, one chart (AD-016)
+│   └── data/prr_top.csv      # committed, written by `hindsight analyze --csv`
 ├── tests/
 │   ├── fixtures/sample_100.json   # committed, ~100 reports
 │   └── test_roundtrip.py
