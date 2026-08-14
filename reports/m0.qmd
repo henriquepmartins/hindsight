@@ -51,6 +51,8 @@ reports above that line supply the evidence for 18,946 of the 28,540 pairs.
 #| label: fig-crowding
 #| fig-cap: "Every drug–event pair reaching three co-reports, against how many drugs the reports behind it name. The ratio climbs with the width of the document."
 #| echo: true
+#| code-fold: true
+#| code-summary: "the plotting code"
 
 import matplotlib.pyplot as plt
 import pandas
@@ -65,10 +67,13 @@ ordinary = pairs[pairs.crowded == 0]
 crowded = pairs[pairs.crowded == 1]
 
 
-figure, axes = plt.subplots(figsize=(7.5, 4.8))
+figure, axes = plt.subplots(figsize=(8.4, 5.2))
 
-axes.scatter(ordinary.crowding, ordinary.prr, s=7, alpha=0.25, linewidths=0, color="#0072B2")
-axes.scatter(crowded.crowding, crowded.prr, s=7, alpha=0.25, linewidths=0, color="#D55E00")
+axes.scatter(ordinary.crowding, ordinary.prr,
+             s=7, alpha=0.25, linewidths=0, color="#0072B2")
+
+axes.scatter(crowded.crowding, crowded.prr,
+             s=7, alpha=0.25, linewidths=0, color="#D55E00")
 
 axes.axvline(27, color="#3C3C3C", linewidth=1.1, linestyle=(0, (5, 4)))
 

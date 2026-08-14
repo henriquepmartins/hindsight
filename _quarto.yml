@@ -1,0 +1,52 @@
+project:
+  type: website
+  output-dir: _site
+
+  # An explicit list, not a glob. A website project renders every .qmd and
+  # .ipynb it finds, and the three notebooks under notebooks/ are repo-only by
+  # AD-016 — they carry their outputs, they need the 155 MB partition to
+  # re-execute, and they would compete with the report for the attention it
+  # needs undivided.
+  render:
+    - index.qmd
+    - reports/m0.qmd
+
+  # Each document executes in its own directory, which is why m0.qmd reads
+  # `data/prr_top.csv` and not `reports/data/prr_top.csv`. Stated rather than
+  # inherited: the default is easy to change by accident and the failure is a
+  # missing file at render time in CI.
+  execute-dir: file
+
+website:
+  title: "Hindsight"
+  description: "Point-in-time signal detection over the FDA Adverse Event Reporting System"
+
+  navbar:
+    # One milestone today, and the structure for the rest. The narrative arc
+    # runs across milestones rather than inside each page (AD-016), so the site
+    # is a book with chapters — declaring that now costs a line and later costs
+    # a refactor.
+    left:
+      - text: "M0 — Walking skeleton"
+        href: reports/m0.qmd
+    right:
+      - icon: github
+        href: https://github.com/henriquepmartins/hindsight
+        aria-label: "Source on GitHub"
+
+  page-footer:
+    border: true
+    center: |
+      **Not medical advice.** Built from the FDA's public adverse event
+      reports; disproportionate reporting is not causation.
+
+format:
+  html:
+    # A single theme, deliberately. seaborn's `darkgrid` panel is #EAEAF2, so a
+    # dark page would cut a light window out of the middle of the chart, and a
+    # transparent figure background loses the contrast the palette depends on.
+    # Naming one theme also means Quarto renders no light/dark toggle.
+    theme: cosmo
+    toc: false
+    fig-align: center
+    link-external-newwindow: true

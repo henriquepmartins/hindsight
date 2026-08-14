@@ -3,7 +3,7 @@
 # export_date: 2026-08-10
 # min_count: 3
 # crowding_cut: 27 distinct drugs (the 0.99 quantile of this partition)
-# Read with comment='#'. Counts are distinct reports.
+# pandas.read_csv(path, comment='#'). Counts are distinct reports.
 "drug","event","a","b","c","d","prr","chi2","signal","crowding","crowded"
 "DESOGESTREL\ETHINYL ESTRADIOL","X-ray abnormal","4","1","1","11994","9596.0","5877.899","1","70.0","1"
 "DESOGESTREL\ETHINYL ESTRADIOL","General symptom","3","2","1","11994","7197.0","3747.812","1","73.0","1"

@@ -39,8 +39,11 @@ test: ## Run the round-trip integrity test  [TODO T11]
 analyze: ## Compute PRR over the drug-event contingency tables
 	uv run hindsight analyze $(PARTITION)
 
-site: ## Render the Quarto site to _site/  [TODO T15]
-	$(call todo,T15)
+# The CSV is regenerated first, because the page reads a committed file and a
+# stale one is the way the site and the pipeline drift apart silently (T17).
+site: ## Write the report's CSV and render the Quarto site to _site/
+	uv run hindsight analyze $(PARTITION) --csv
+	uv run --group viz quarto render
 
 all: install ingest test analyze site ## Everything, in order
 

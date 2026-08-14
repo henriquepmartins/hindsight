@@ -707,13 +707,28 @@ Then read the rendered page in greyscale and confirm the accent is still the acc
 **Depends on:** T14 · **Requirement:** M0-15
 
 **Done when:**
-- [ ] `quarto render` produces `_site/index.html` with the chart
-- [ ] The not-medical-advice disclaimer is in the footer of every page
-- [ ] `_site/` is gitignored
-- [ ] **The theme is light, fixed** (AD-016). seaborn's `darkgrid` panel is `#EAEAF2`; a dark page around it turns the chart into a cut-out window, and a transparent figure background loses the contrast guarantee the palette rule depends on
-- [ ] **Navigation is per milestone from the start**, with one entry today. The narrative arc runs across milestones, so the site is a book with chapters rather than five copies of one template — cheap to declare now, a refactor later
+- [x] `quarto render` produces `_site/index.html`, and `_site/reports/m0.html` with the chart
+- [x] The not-medical-advice disclaimer is in the footer of every page
+- [x] `_site/` is gitignored
+- [x] **The theme is light, fixed** (AD-016)
+- [x] **Navigation is per milestone from the start**, with one entry today
 
-**Verify:** `quarto render && open _site/index.html`
+**Deviations from the original criteria, and why:**
+
+- **`render:` is an explicit list, not a glob.** A Quarto website project renders every `.qmd` **and `.ipynb`** it finds, so the default would have published the three notebooks — which AD-016 says stay in the repo, and which need the 155 MB partition to re-execute. Naming the two documents is what stops the site from growing pages nobody decided to publish.
+- **`execute-dir: file` is stated rather than inherited.** It is the default, and it is why `m0.qmd` reads `data/prr_top.csv` and not `reports/data/prr_top.csv`. Left implicit, changing it is a one-word edit whose failure is a missing file at render time inside a CI workflow.
+- **One theme named, no light/dark pair.** Quarto renders a colour-scheme toggle only when two are given, so naming one both fixes the theme and removes the control. Verified in the built HTML: zero occurrences of `quarto-color-scheme-toggle`.
+- **The plotting code is folded, not hidden and not open.** Rendered open it was ~40% of the page's height, sitting between the claim and the chart, with two lines cut off horizontally. Folded behind "the plotting code" it stays one click from any reader who wants it and stops competing with the figure. The long lines are wrapped so nothing is clipped when it is opened.
+- **The figure grew to 8.4 × 5.2in** from 7.5 × 4.8, which the rendered width had left looking small against the text column.
+- **`make site` regenerates the CSV before rendering.** The page reads a committed file, and a stale one is exactly how the site and the pipeline drift apart without failing (T17). Chaining them in the target makes the stale case take deliberate effort.
+- **`index.qmd` carries the milestone list.** Not in the task's file list beyond its name; it is where the per-milestone navigation actually means something with one page published.
+
+**Verify:**
+```bash
+make site                        # CSV written, then Output created: _site/index.html
+python3 -m http.server -d _site  # then read both pages in a browser
+```
+Both pages were rendered and read at 1180px: navbar with the milestone entry, the disclaimer in the footer of each, the chart at full width, no theme toggle.
 
 **Commit:** `feat(site): Quarto rendering`
 

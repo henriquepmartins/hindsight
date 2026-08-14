@@ -1,0 +1,24 @@
+---
+title: "Hindsight"
+subtitle: "Would this system have flagged real drug safety warnings before the FDA issued them?"
+---
+
+The FDA's adverse event database holds 20.7 million spontaneous reports. The
+disproportionality statistics regulators screen them with are public, and so is
+the list of safety warnings the FDA has actually issued.
+
+That makes an unusual thing possible: for each real warning, recompute the
+signal using **only the reports that existed before that date**, and measure how
+early it would have fired. The backtest is the point. Everything before it exists
+to make it trustworthy.
+
+The misses and the false positives get published beside the hits.
+
+## Milestones
+
+**[M0 — Walking skeleton](reports/m0.qmd)** · One partition through every layer.
+The first ranking it produced was contaminated, and measuring how badly is the
+milestone's result.
+
+M1 — the full corpus · M2 — entity resolution and deduplication · M3 — signal
+detection · M4 — the backtest · M5 — dataset release. Not yet written.
