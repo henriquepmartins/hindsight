@@ -130,7 +130,11 @@ Expected peak RSS: well under 200 MB. The spec's 500 MB ceiling is deliberately 
 
 Pass 1 re-reads the zip. Decompression of 246 MB is a few seconds locally, and it happens once per partition ever — the inferred schema is cached to `schema/<partition>.json`, so re-runs skip pass 1 entirely.
 
-At M1 scale the schema is inferred per *era*, not per partition, and partitions validate against it. That's the drift check, and it falls out of this design for free.
+At M1 scale the schema is inferred per *era*, not per partition, and partitions validate against it. **That is the drift check, and it does not fall out of this design for free** — this sentence used to say it did, and the 14/08 review priced it:
+
+- Pass 1 must sweep **every** partition in the era before pass 2 writes **any** of them. Per partition the second read is a few seconds; per era it is a second pass over the whole era. M1 keeps the era's zips on disk between the passes and drops them when the era closes, rather than downloading 111 GB twice (AD-018).
+- An era is **discovered**, not declared: a contiguous run of buckets sharing one set of field paths, recorded by pass 1 (AD-017).
+- Validation **quarantines and records** rather than crashing. `enforce` raising `UnknownField` is right in M0, where a human is watching; an unattended crawl that dies on partition 900 loses the other 867 to an event this design expected (AD-017).
 
 ---
 

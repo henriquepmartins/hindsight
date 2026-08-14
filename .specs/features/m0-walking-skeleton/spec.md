@@ -24,7 +24,7 @@ M0 pushes 12,000 reports through every layer of the real architecture and puts o
 | Excluded | Reason |
 |---|---|
 | Remote object storage (R2 / HF / B2) | Cloud accounts on the critical path of a walking skeleton. Local `data/` is enough to prove the chain. Deferred to M1 — AD-008 |
-| More than 2 partitions | Scale is M1. M0 uses one 2025 partition + one 2005-era partition for the drift check |
+| More than 2 partitions | Scale is M1. M0 uses one 2025 partition + one early-era partition (2004q1 onward — openFDA does not start at 2005, L-006) for the drift check |
 | Entity resolution, deduplication | M2. PRR in M0 runs on raw `medicinalproduct` strings and the numbers are labeled provisional |
 | Bayesian shrinkage, ROR, confidence intervals | M3. M0 computes plain PRR only |
 | Any backtest or point-in-time logic | M4 |
@@ -86,6 +86,7 @@ M0 pushes 12,000 reports through every layer of the real architecture and puts o
 5. WHEN any field appears in the source THEN the system SHALL retain it — no hardcoded keep-list, ever (L-005)
 6. WHEN Parquet is written THEN the system SHALL use ZSTD level 9 and partition by year/quarter
 7. WHEN the process runs THEN peak RSS SHALL stay below 500 MB
+8. WHEN a `safetyreportid` appears more than once in a partition THEN the system SHALL count it into `metrics.json` as `repeated_report_ids` and write both rows — the round trip is keyed on this field, so its uniqueness is measured per partition rather than assumed (AD-020)
 
 **Independent Test:** Process the 2025q1 partition, observe 5 Parquet files and a memory ceiling well under the 1.2 GB input.
 
@@ -104,8 +105,11 @@ M0 pushes 12,000 reports through every layer of the real architecture and puts o
 3. WHEN any report differs THEN the test SHALL fail and name the differing keys and the `safetyreportid`
 4. WHEN the test runs in CI on push THEN the build SHALL fail on mismatch
 5. WHEN the test runs THEN it SHALL use a committed fixture of ~100 reports, not the full 246 MB partition — CI must not depend on a 22-second download
+6. WHEN two report rows share a `safetyreportid` THEN reconstruction SHALL raise rather than pick one — a reconstruction that guesses which child array belongs to which report would pass the test without being the inverse of the write, which is the L-008 failure shape (AD-020)
 
 **Independent Test:** Corrupt one field in the normalizer, watch CI go red, revert.
+
+**Scope of the claim:** on push this proves losslessness over ~100 reports of one 2025 export. Per-era coverage is a scheduled M1 job, and the site names which eras have been verified (AD-019). The narrow scope is deliberate; leaving it unstated is what would make it dishonest.
 
 ---
 
@@ -136,21 +140,24 @@ M0 pushes 12,000 reports through every layer of the real architecture and puts o
 1. WHEN the pipeline finishes THEN Quarto SHALL render the analysis notebook to static HTML
 2. WHEN a push to `main` succeeds THEN GitHub Actions SHALL publish the rendered site to GitHub Pages
 3. WHEN the site is published THEN it SHALL carry the limitations text before the result — not after (project standard #5)
+4. WHEN CI runs THEN it SHALL check that the committed CSV's header names a partition with a committed pin in `data/manifest/` and a committed `schema/`, with matching `export_date` (AD-022)
 
 **Independent Test:** Open the Pages URL in a private window.
+
+**What criterion 4 does not cover:** the page reads a committed CSV and never touches `data/parquet/`, so it can disagree with the pipeline. CI cannot regenerate the CSV — the Parquet is gitignored and downloading the partition per push is what P1's round-trip AC5 refused. So this checks provenance, not values: it catches a partition with no pin and an export date that drifted, and it does **not** catch a CSV generated with a stale exclusion list over the right partition. That one belongs to M1's scheduled job (AD-019).
 
 ---
 
 ### P2: Era drift check
 
-**User Story:** As the architect, I want the same pipeline run against a 2005-era partition so that the compression and coverage numbers are known to hold across the corpus, not just in 2025.
+**User Story:** As the architect, I want the same pipeline run against an early-era partition so that the compression and coverage numbers are known to hold across the corpus, not just in 2025.
 
 **Why P2:** The whole storage projection rests on one 2025 partition (STATE.md caveat). If 2005 behaves differently, M1's sizing is wrong — better to learn that now than after a 2.7-hour crawl. Not P1 because the chain is already proven without it.
 
 **Acceptance Criteria:**
 
-1. WHEN a 2005-era partition is processed THEN the system SHALL report its compression ratio and per-table row counts
-2. WHEN fields present in 2025 are absent in 2005 THEN the system SHALL record the difference rather than crash
+1. WHEN an early-era partition is processed THEN the system SHALL report its compression ratio and per-table row counts, compared against T9's measured 175×
+2. WHEN fields present in 2025 are absent in the early era THEN the system SHALL record the difference rather than crash — and the field-level diff is the first evidence for where an era boundary falls (AD-017)
 3. WHEN the run completes THEN the measured ratios SHALL be written into STATE.md as a new Lesson
 
 **Independent Test:** Two rows in a comparison table, one per era.
@@ -172,36 +179,40 @@ M0 pushes 12,000 reports through every layer of the real architecture and puts o
 - WHEN a partition contains a report with no `patient.drug` array THEN the system SHALL emit the report row with zero drug rows, not skip the report
 - WHEN two different `openfda` blocks hash to the same key THEN the system SHALL fail loudly (SHA-1 truncated to 16 hex chars — collision is implausible but silent corruption is unacceptable)
 - WHEN a field contains a value whose JSON type differs between reports THEN the system SHALL record a drift event rather than coerce silently
-- WHEN `safetyreportid` is duplicated within a partition THEN the system SHALL record the count and keep both — dedup is M2's job, not M0's
+- WHEN `safetyreportid` is duplicated within a partition THEN ingestion SHALL count it into `metrics.json` as `repeated_report_ids` and keep both rows — dedup is M2's job, not M0's — and reconstruction SHALL refuse the report rather than pick one, because two reports under one id leave no information about which child array belongs to which (AD-020)
 - WHEN the openFDA export date changes mid-run THEN the manifest SHALL record the date actually used
 
 ---
 
 ## Requirement Traceability
 
+Refreshed in one pass on 2026-08-14 rather than a row per task, as STATE's todo asked.
+
 | ID | Story | Task | Status |
 |---|---|---|---|
-| M0-01 | Reproducible environment | T1, T2 | Pending |
-| M0-02 | Environment reproduces in CI | T2, T16 | Pending |
-| M0-03 | Partition manifest resolution | T4 | Pending |
-| M0-04 | Pinned, checksummed download with resume | T5 | Pending |
-| M0-05 | Streaming read from inside the zip | T6 | Pending |
-| M0-06 | `openfda` dimension by content hash, empty-dict safe | T7 | Pending |
-| M0-07 | Fact-table splitting, no keep-list | T8 | Pending |
-| M0-08 | Parquet write, ZSTD-9, partitioned | T9 | Pending |
-| M0-09 | Round-trip reconstruction | T10 | Pending |
-| M0-10 | Round-trip test green in CI on a fixture | T11, T16 | Pending |
-| M0-11 | Memory ceiling proven < 500 MB | T6, T18 | Pending |
-| M0-12 | MedDRA exclusion list, versioned | T12 | Pending |
-| M0-13 | PRR over 2×2 contingency tables | T13 | Pending |
-| M0-14 | Chart + caveats in a notebook | T14 | Pending |
-| M0-15 | Quarto render | T15 | Pending |
-| M0-16 | Published to GitHub Pages | T17 | Pending |
-| M0-17 | `make all` on a clean machine | T3, T18 | Pending |
+| M0-01 | Reproducible environment | T1, T2 | Done |
+| M0-02 | Environment reproduces in CI | T2, T16 | Done |
+| M0-03 | Partition manifest resolution | T4 | Done |
+| M0-04 | Pinned, checksummed download with resume | T5 | Done |
+| M0-05 | Streaming read from inside the zip | T6 | Done |
+| M0-06 | `openfda` dimension by content hash, empty-dict safe | T7 | Done |
+| M0-07 | Fact-table splitting, no keep-list | T8 | Done |
+| M0-08 | Parquet write, ZSTD-9, partitioned | T9 | Done |
+| M0-09 | Round-trip reconstruction | T10 | Done |
+| M0-10 | Round-trip test green in CI on a fixture | T11, T16 | Done |
+| M0-11 | Memory ceiling proven < 500 MB | T6, T18 | Partial — 47.7 MB (T6) and 175 MB (T9) measured; the clean-machine run is T18 |
+| M0-12 | MedDRA exclusion list, versioned | T12 | Done |
+| M0-13 | PRR over 2×2 contingency tables | T13 | Done |
+| M0-14 | Chart + caveats in a notebook | T14 | Done |
+| M0-15 | Quarto render | T15 | Done |
+| M0-16 | Published to GitHub Pages | T17 | Committed — live URL not confirmed yet |
+| M0-17 | `make all` on a clean machine | T3, T18 | Partial — `make test` stopped being a stub on 14/08, so the chain runs end to end; the clean-clone run is T18 |
 | M0-18 | Era drift check (P2) | T19 | Pending |
-| M0-19 | `metrics.json` snapshot (P3) | T9 | Pending |
+| M0-19 | `metrics.json` snapshot (P3) | T9 | Done |
+| M0-20 | `repeated_report_ids` counted, ambiguous id refused on rebuild | T20 | Done — AD-020 |
+| M0-21 | Published CSV's provenance checked in CI | T20 | Done — AD-022 |
 
-**Coverage:** 19 requirements, 19 mapped to tasks, 0 unmapped ✅
+**Coverage:** 21 requirements, 21 mapped to tasks, 0 unmapped ✅
 
 ---
 
@@ -211,7 +222,7 @@ M0 pushes 12,000 reports through every layer of the real architecture and puts o
 - [ ] `make all` on a clean machine produces that site in < 15 min
 - [ ] CI is green, and goes red when the normalizer is deliberately broken
 - [ ] Peak RSS during ingestion measured and recorded, < 500 MB
-- [ ] The 2005-era compression ratio is a measured number in STATE.md, not a projection
-- [ ] The distinct-`openfda` count contradiction in L-003 is resolved with a real measurement
+- [ ] The early-era compression ratio is a measured number in STATE.md, compared against T9's 175× rather than the superseded 338× (T19)
+- [x] The distinct-`openfda` count contradiction in L-003 is resolved with a real measurement — **2,251** (T9)
 
 **Failure criterion:** if M0 exceeds 24 h, stop and revisit the architecture (ROADMAP exit criteria). Do not push through.

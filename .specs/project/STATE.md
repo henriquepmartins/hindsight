@@ -1,7 +1,9 @@
 # State
 
-**Last Updated:** 2026-08-13
-**Current Work:** M0 — Walking Skeleton. T1–T12 done: repo initialized, dependencies pinned, Makefile skeleton, partition resolver, pinned resumable downloader, streaming report iterator, openfda dimension writer, record splitter, schema inference + Parquet sink, round-trip reconstructor, round-trip test, MedDRA exclusion list. **AD-013 is decided** — five tables, and a null `seq` on `report_duplicate` means the source carried a bare object. **The round trip closes and is now defended: 12,000 / 12,000 byte-identical, plus 13 tests over a committed 100-report fixture that CI can run without the partition.** Phase 3, the core of M0, is finished, and T12 curated 187 exclusion terms that clear the top of the ranking — what surfaces underneath is infliximab → sepsis, a real anti-TNF warning. **T12 also found the trap T13 walks into: one report carries 2,321 drug rows, and the naive join inflates the pair counts 2.2× (L-009).** T13 is written: PRR and χ² over a 2×2 of **distinct reports**, Evans as the screening criterion (AD-014), 0.13 s over the partition. **Its eye-check failed, and the failure is the milestone's finding — the top of the table is nine near-duplicate reports of one Canadian patient on ~90 drugs, and neither `drugcharacterization` nor Evans removes it (L-010).** T13 is committed. **T14 is done and it enlarged the finding (L-011): the nine duplicate reports are not a cluster to route around — 125 reports of 12,000, 1.04%, supply 66.4% of the whole pair table.** Three notebooks record the analyses that actually ran, `reports/m0.qmd` publishes that in 370 words and one chart, and `hindsight analyze --csv` writes the committed table the page reads. **T15 is done too** — `_quarto.yml` + `index.qmd`, light theme with no toggle, per-milestone navbar, the disclaimer in every footer, and `make site` regenerating the CSV before rendering so a stale page takes deliberate effort. **T16 is done** — CI green in 30 s, and its first run immediately caught the one dependency rule this milestone had just written down being broken (L-012). Next action: **T17** (publish to GitHub Pages), then **T18** and **T19**.
+**Last Updated:** 2026-08-14
+**Current Work:** M0 — Walking Skeleton. T1–T12 done: repo initialized, dependencies pinned, Makefile skeleton, partition resolver, pinned resumable downloader, streaming report iterator, openfda dimension writer, record splitter, schema inference + Parquet sink, round-trip reconstructor, round-trip test, MedDRA exclusion list. **AD-013 is decided** — five tables, and a null `seq` on `report_duplicate` means the source carried a bare object. **The round trip closes and is now defended: 12,000 / 12,000 byte-identical, plus 13 tests over a committed 100-report fixture that CI can run without the partition.** Phase 3, the core of M0, is finished, and T12 curated 187 exclusion terms that clear the top of the ranking — what surfaces underneath is infliximab → sepsis, a real anti-TNF warning. **T12 also found the trap T13 walks into: one report carries 2,321 drug rows, and the naive join inflates the pair counts 2.2× (L-009).** T13 is written: PRR and χ² over a 2×2 of **distinct reports**, Evans as the screening criterion (AD-014), 0.13 s over the partition. **Its eye-check failed, and the failure is the milestone's finding — the top of the table is nine near-duplicate reports of one Canadian patient on ~90 drugs, and neither `drugcharacterization` nor Evans removes it (L-010).** T13 is committed. **T14 is done and it enlarged the finding (L-011): the nine duplicate reports are not a cluster to route around — 125 reports of 12,000, 1.04%, supply 66.4% of the whole pair table.** Three notebooks record the analyses that actually ran, `reports/m0.qmd` publishes that in 370 words and one chart, and `hindsight analyze --csv` writes the committed table the page reads. **T15 is done too** — `_quarto.yml` + `index.qmd`, light theme with no toggle, per-milestone navbar, the disclaimer in every footer, and `make site` regenerating the CSV before rendering so a stale page takes deliberate effort. **T16 is done** — CI green in 30 s, and its first run immediately caught the one dependency rule this milestone had just written down being broken (L-012). **T17 está commitado** (`ci: publish site to GitHub Pages`); falta confirmar a URL viva.
+
+**Uma revisão de arquitetura em 14/08 fechou o M1 no papel antes de T19 fechar o M0** — AD-017 a AD-022. Quatro dos seis achados eram a mesma coisa: uma promessa do PROJECT/ROADMAP que o M0 resolveu de um jeito deliberadamente estreito e correto, e que nenhum milestone assumia de volta na largura prometida. Dois já foram implementados e verificados: **`repeated_report_ids` no `metrics.json` com o round trip recusando o id ambíguo** (AD-020, medido 0 de 12.000) e a **guarda de procedência da página no CI** (AD-022). O `make test` deixou de ser um stub que saía 1, então `make all` roda de ponta a ponta pela primeira vez. Suíte em **202 testes, 1,6 s**. Próxima ação: **T18**, depois **T19**.
 
 ---
 
@@ -150,6 +152,84 @@ The narrative arc — problem, objective, data, model, optimisation, analysis, r
 - *Rendering the notebooks to the site alongside the report* — three raw notebooks beside the page would compete with it for the attention it needs undivided, and would put a 155 MB partition on CI's critical path.
 
 **Impact:** design.md's tree changes, T14 splits into notebooks plus a report, T15 fixes the site to a light theme (seaborn's `darkgrid` panel is `#EAEAF2` and needs a light page around it) with per-milestone navigation from the start, and T17 renders the report from a committed CSV rather than from `data/parquet/`. M1 onward inherits all of it without relitigating.
+
+> As seis decisões abaixo saíram de uma revisão de arquitetura em 14/08/2026, feita antes de T19 fechar o M0. Todas tratam da mesma assimetria: o M0 está especificado no nível de contrato e o M1 estava no nível de intenção. São em português porque a regra de idioma mudou em 14/08; as seções acima ficam como estão até a passada de tradução.
+
+### AD-017: Era é medida, e drift põe a partição de quarentena em vez de derrubar o crawl (2026-08-14)
+
+**Decisão:** uma **era** é um intervalo contíguo de buckets com o mesmo conjunto de caminhos de campo, descoberto pela passagem 1 e gravado em `schema/<era>.json` — não uma década escolhida no papel. E quando uma partição carrega um campo que o schema da era não tem, o pipeline **registra o evento de drift, põe a partição de quarentena e segue**. Não escreve, não alarga o schema sozinho, não para o crawl.
+
+**Razão:** o ROADMAP prometia "detect and record every drift event rather than crashing on it" e o mecanismo implementado faz o oposto — `enforce` levanta `UnknownField` e `_observe` levanta `SchemaConflict`. Está certo em M0, onde um humano está olhando. Contra a restrição "o pipeline deve rodar sem supervisão a partir de M1", um campo novo em qualquer uma das 1.767 partições para tudo até alguém re-inferir à mão.
+
+Era, como conceito, tinha o problema oposto: aparecia no design (schema por era), no PROJECT (round trip por era) e no T19, e não estava definido em lugar nenhum. Definir por medição é o único critério que o próprio detector de drift consegue verificar — uma fronteira escrita à mão seria mais uma constante medida numa partição e aplicada a 2004–2025, que é o erro de L-006.
+
+**Trade-off:** o corpus passa a ter buracos declarados em vez de estar sempre completo, e a fila de quarentena é trabalho de operador que precisa aparecer em algum lugar. Contra isso: um buraco declarado é publicável, e "publique as falhas com o mesmo destaque que os acertos" é padrão nº 2 do projeto.
+
+**Alternativas rejeitadas:**
+- *Alargar o schema da era automaticamente e registrar.* Mais barato e mantém o corpus completo. Escreve partições contra um schema que mudou sem revisão, que é exatamente o "alargar em silêncio" que a mensagem de erro de `_observe` recusa.
+- *Continuar quebrando.* Honesto, e incompatível com um cron. Um crawl de 1.767 partições que morre na partição 900 por um campo novo perde as 867 restantes por um evento que o design já esperava.
+
+**Impacto:** os eventos de drift viram o artefato de qualidade de dados que M1 já prometia, e a fila de quarentena vira uma linha da página que se autoavalia. `UnknownField` continua sendo o gatilho — muda quem o pega e o que faz com ele, não o detector.
+
+### AD-018: Em escopo de era, as duas passagens retêm os zips da era; o alvo remoto é decidido antes da crawler (2026-08-14)
+
+**Decisão:** o M1 processa **uma era por vez** e retém os zips daquela era em disco entre a passagem 1 e a passagem 2, descartando ao fechar a era. E o alvo de armazenamento remoto (AD-012) é **decidido e escrito antes** da tarefa da crawler, não depois.
+
+**Razão:** AD-011 precificou as duas passagens como "~40 linhas e uma segunda leitura do zip, cacheada depois". É verdade por partição e falso por era: a passagem 1 precisa varrer **todas** as partições da era antes que a passagem 2 escreva **qualquer** uma. Junto com a regra "stream → transform → discard: os 111 GB nunca estão todos em disco", sobravam duas saídas e nenhuma estava escrita — baixar cada partição duas vezes (~5,4 h de transferência contra as 2,7 h medidas) ou reter bytes. Reter por era limita o pico ao maior bucket em vez do corpus, e mantém a transferência no número medido.
+
+A ordem da crawler contra o armazenamento é o mesmo tipo de dívida: uma crawler que escreve em disco local e depois migra para o remoto é reescrita, não configuração.
+
+**Trade-off:** o pico de disco deixa de ser ~1,5 GB por partição e passa a ser o tamanho da maior era. É um número que ninguém mediu ainda — o M1 mede antes de rodar, a partir do manifesto, que já traz o tamanho de cada partição.
+
+**Impacto:** o M1 ganha um limite de disco explícito no lugar de uma suposição, e a decisão de AD-012 sai de "revisitar em M1" para "primeira tarefa de M1".
+
+### AD-019: O round trip por era ganha dono, e a página diz quais eras foram verificadas (2026-08-14)
+
+**Decisão:** o teste de round trip por era vira uma feature de M1 rodando **em agenda, uma partição por era**, separada do CI de push. O CI de push continua no fixture de ~100 relatos. A página publica quais eras foram verificadas e quando.
+
+**Razão:** `PROJECT.md` §Scope promete "a round-trip integrity test in CI, run per era". `spec.md` P1 AC5 restringe o CI ao fixture, que é a decisão certa para o push — 22 s de download por commit não se paga. E M1–M5 nunca voltavam ao assunto, então a prova central do projeto encolhia em silêncio: de M1 em diante "lossless" seria testado sobre 100 relatos de um export, enquanto o corpus cresce para 91 buckets com forma comprovadamente dependente da era (L-007, L-006).
+
+Um item de escopo v1 sem milestone dono não é escopo, é intenção.
+
+**Trade-off:** o job agendado baixa uma partição por era, e `Tables.load` segura uma partição inteira em dicts Python (266 MB para 4,62 MB de Parquet, T10). É sequencial e cabe no teto de 500 MB por partição, mas é o job mais caro do projeto.
+
+**Impacto:** "byte-identical" passa a ter alcance declarado em vez de alcance presumido. É a diferença entre a afirmação do README ser verdadeira e ser verdadeira sobre o fixture.
+
+### AD-020: `safetyreportid` repetido é contado, e o round trip recusa o id ambíguo (2026-08-14) — IMPLEMENTADO
+
+**Decisão:** `write_partition` conta ids repetidos e grava `repeated_report_ids` no `metrics.json`, mantendo as duas linhas. `Tables.from_rows` levanta `BrokenTables` quando um id aparece duas vezes em `report`.
+
+**Razão:** `spec.md` §Edge Cases já mandava "record the count and keep both" e nada contava. Pior: `Tables.from_rows` chaveava os relatos por `safetyreportid` num dict, então um id repetido descartava uma linha em silêncio, enquanto `_by_report` fundia as linhas de medicamento dos dois relatos numa lista só. O round trip é a única prova de que "lossless" é verdade, e estava chaveado num campo cuja unicidade nunca foi checada — em um projeto cuja premissa de M2 inteira é que o FAERS tem duplicatas.
+
+As duas metades são deliberadamente diferentes. A ingestão **conta e mantém**, porque dedupe é M2 e jogar fora na escrita seria decidir M2 na ingestão. A reconstrução **recusa**, porque com dois relatos sob o mesmo id não existe informação sobre qual array pertence a qual — e uma reconstrução que chuta isso passaria no teste sem ser o inverso da escrita, que é a forma de falha de L-008.
+
+**Trade-off:** um set de ids por partição na escrita, limitado a 12.000 entradas, e uma partição com ids repetidos passa a ser não-reconstruível até M2 existir. É o comportamento correto: ela já era não-reconstruível, só que em silêncio.
+
+**Impacto:** medido na partição de 2025 — **0 ids repetidos em 12.000**. A suposição valia; agora ela é verificada por partição, e M1 descobre onde ela deixa de valer em vez de herdar o número.
+
+### AD-021: O "<5 s" da G1 vira uma query nomeada, medida em M1 (2026-08-14)
+
+**Decisão:** a medida de sucesso da G1 passa a nomear a query — contagem de pares medicamento-evento distintos sobre o corpus inteiro, com a lista de exclusão aplicada — e o alvo passa a ser **medido em M1 sobre as partições já ingeridas**, com o número publicado seja ele qual for. O `<5 s` deixa de ser critério e vira expectativa prévia até haver medição.
+
+**Razão:** "uma única query DuckDB sobre o corpus completo retorna em <5s num laptop" não dizia qual query, e a única medição existente é 0,13 s sobre 12.000 relatos — 1/1.767 do corpus. Pior, o caminho que a testaria está fechado por construção: `_directory` levanta `PrrError` quando há mais de uma partição ingerida, porque o PRR é reportado por partição. O particionamento year/quarter também não ajuda: a query da G1 é um `GROUP BY` de corpus inteiro sobre ~178M linhas de medicamento contra ~75M de reação, sem poda de partição.
+
+É a meta que justifica a arquitetura de armazenamento para o leitor, e era a única das quatro sem nenhum dado por trás. L-002 existe exatamente sobre isso.
+
+**Trade-off:** o número medido pode ser ruim, e aí a G1 muda ou a arquitetura de consulta muda. Descobrir isso em M1 custa uma tarde; descobrir em M5 custa o argumento.
+
+**Impacto:** M1 ganha uma tarefa de medição, e `prr._directory` ganha um caminho multi-partição — hoje ele recusa, e a recusa é o que impede a medida de existir.
+
+### AD-022: A procedência da página publicada é checada no CI (2026-08-14) — IMPLEMENTADO
+
+**Decisão:** o cabeçalho de `reports/data/prr_top.csv` — `partition`, `export_date`, `min_count` — é lido por `export.provenance()` e conferido contra o pin versionado em `data/manifest/` e o `schema/` da partição, em testes que rodam no CI de push.
+
+**Razão:** T17 declarou o custo com honestidade — a página lê um CSV versionado e nunca toca `data/parquet/`, então ela pode discordar do pipeline e nada falha. A mitigação era a procedência no cabeçalho, que só ajuda quem abre o arquivo. `make site` regenera antes de renderizar; o workflow de publish só roda `quarto render`; o CI não olhava o CSV.
+
+Em M0 — um gráfico, um CSV, tudo commitado junto — o risco é pequeno. O refresh agendado de M1 muda a natureza dele: os números passam a mudar sozinhos e a página não.
+
+**Trade-off:** o CI não pode regenerar o CSV, porque `data/parquet/` é gitignored e baixar a partição a cada push é o que AC5 do P1 recusou. Então a checagem é de procedência, não de valor: ela pega uma partição sem pin e uma data de export que não bate, e **não** pega um CSV gerado com a lista de exclusão antiga sobre a partição certa. Isso fica com o job agendado de AD-019.
+
+**Impacto:** L-012 outra vez, na forma geral — uma restrição que o ambiente não impõe é uma restrição já violada em algum lugar que ninguém olhou. Verificado hoje: o CSV commitado reproduz byte-idêntico a partir do Parquet local, então isso é uma guarda ausente e não uma divergência viva.
 
 ---
 
@@ -433,6 +513,11 @@ Then the number that changed the milestone's deliverable: **125 reports of 12,00
 | Highest-PRR pair from ordinary reports | `RISPERDAL × Gynaecomastia` — a=5 b=16 c=1, PRR 2,852 | T14, same file |
 | Exported CSV | 28,540 rows, 2.58 MB on disk, **773 KB stored** in git | T14, `git cat-file -s` then the loose object |
 | M0 report prose | **370 words** against AD-016's ≤400 budget | T14, word count over `reports/m0.qmd` |
+| `safetyreportid` repetidos na partição | **0 de 12.000** — a suposição valia e não era checada | Revisão 14/08, `hindsight ingest` re-rodado (AD-020) |
+| Ingestão reproduz depois das mudanças | 175× · 2.251 openfda · 71.990 drug · 44.916 reaction · 7.872 duplicate | Revisão 14/08, mesma rodada |
+| CSV publicado vs. Parquet local | **byte-idêntico**, 28.540 pares · 18.946 lotados · corte 27,0 | Revisão 14/08, `write_csv` para tmp e `diff` |
+| Suíte rápida com as guardas novas | **202 testes, 1,6 s** (eram 191) | Revisão 14/08, `make test` |
+| Round trip com a guarda de id repetido | **12.000 / 12.000**, 24,6 s | Revisão 14/08, `pytest -m slow` |
 
 > ⚠️ Caveat, hardened by **L-006**: per-partition figures come from one partition, `2025q1/drug-event-0001-of-0034` — **which no longer exists.** The 2026-08-10 export chunks 2025q1 into 28 files, not 34. These figures are prior expectations, not reproducible measurements. **T6 through T9 have since re-measured every one of them** against `2025q1/0001-of-0028`: reports 12,000 (matches), drug rows 71,990 and reaction rows 44,916 (both lower), compression 175× rather than 338×. Where the two disagree, the T6–T9 row is the measurement and the spike row is history. The corpus-level rows above (1,767 partitions, 111 GiB, 20,692,690 records) were re-verified against the manifest on 2026-08-13 and hold exactly.
 
@@ -454,17 +539,20 @@ Then the number that changed the milestone's deliverable: **125 reports of 12,00
 - [ ] Decide the Bayesian shrinkage estimator (BCPNN vs. gamma-Poisson) once M3 begins
 - [ ] **Schedule AD-006's benchmark in M3.** The AD's case for skipping deep learning rests on "deliberately not using it *and benchmarking to show why*", and the benchmark was never put on the roadmap — which leaves the stronger half of the argument unevidenced. Gradient boosting against the shrinkage estimator, on the same pairs, publishing the result either way
 - [x] ~~Choose Quarto vs. Evidence.dev~~ — Quarto, AD-009
-- [ ] Confirm remote storage target at M1 start (AD-012 — HF Datasets front-runner)
+- [ ] **Confirmar o alvo de armazenamento remoto como primeira tarefa de M1**, antes da crawler (AD-012, sequenciado por AD-018 — HF Datasets é o favorito)
+- [ ] **Medir o tamanho da maior era a partir do manifesto** antes de rodar M1, para o pico de disco de AD-018 ser um número e não uma suposição
+- [ ] **Medir a query da G1 sobre várias partições** (AD-021). Depende de `prr._directory` ganhar um caminho multi-partição — hoje ele recusa, e a recusa é o que impede a medida de existir
 - [x] ~~Record the distinct-`openfda` count during T9~~ — 2,251, and L-003's numbers are now annotated rather than trusted
 - [x] ~~**Decide AD-013** (`reportduplicate` as a fifth table)~~ — accepted 2026-08-13. Five tables, `seq IS NULL` is the bare-object marker, specs updated to match
 - [ ] Empty arrays are indistinguishable from absent fields (L-007). **T11 re-measured: 0 empty arrays anywhere, and 0 reports without drugs or without reactions**, so the hole still has no known instance. Decide before M1 crawls 1,767 partitions — the reconstruction currently rebuilds the absent version
 - [ ] Row-group size: 2,000 costs ~12% of the output size (T9). T18 owns the trade against peak RSS
 - [x] ~~**`Tables.load` holds a whole partition in Python dicts** — 266 MB for 4.62 MB of Parquet (T10)~~ — T11 kept it. Measured 373 MB peak against the 500 MB ceiling; streaming in `safetyreportid` order would trade that headroom for a sort nothing needs. CI never loads a partition. **Revisit at M1** if a denser partition gets close
 - [x] ~~T11 must assert "zero explicit nulls" per partition rather than inherit T10's measurement (L-008)~~ — done, and it is what makes the round-trip comparison one-sided
-- [ ] Add `ijson` to PROJECT.md's key dependencies — required by the streaming design, currently missing
+- [x] ~~Add `ijson` to PROJECT.md's key dependencies~~ — o todo estava obsoleto: `ijson` já está na lista de PROJECT.md. Conferido na revisão de 14/08
 - [ ] **Review the exclusion list at the start of M1**, as its own header promises. It was curated against one partition and is a floor, not an enumeration
 - [ ] Procedure and concomitant-therapy terms (`Chemotherapy`, `Radiotherapy`, `Oxygen therapy`) sit in the reaction field and are not bodily responses either. Enumerating them by hand loses; they need the MedDRA hierarchy, which openFDA does not ship — the export carries the preferred term only. Deferred, and stated in the list's header rather than left out quietly
 - [x] ~~The exclusion list's `#` header requires `comment='#'` on read. Without it DuckDB returns **zero rows silently** and nothing is excluded — T13 owns making that failure loud~~ — done. `excluded_terms` raises on an empty read and the message names the cause; two tests pin it, one reading the real CSV without the flag
-- [ ] Spec traceability table still reads `Pending` for M0-01 … M0-12, all of which are done. Refresh it in one pass rather than a row per task
+- [x] ~~Spec traceability table still reads `Pending` for M0-01 … M0-12~~ — atualizada em uma passada na revisão de 14/08
+- [ ] **Passada de tradução nos specs.** A regra de idioma mudou em 14/08 e `PROJECT.md`, `ROADMAP.md`, `STATE.md`, `spec.md`, `design.md` e `tasks.md` ainda são majoritariamente ingleses. Conteúdo novo já sai em pt-BR, então os arquivos estão mistos até essa passada acontecer — a seção M1 do ROADMAP foi traduzida por inteiro porque foi reescrita por inteiro
 
 ---

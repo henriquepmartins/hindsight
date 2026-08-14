@@ -2,7 +2,7 @@
 
 **Spec:** [`spec.md`](spec.md) · **Design:** [`design.md`](design.md)
 **Status:** Approved — ready to execute
-**Budget:** ~24 h. 19 tasks. If you cross 30 h, stop and revisit the architecture (ROADMAP exit criteria).
+**Budget:** ~24 h. 20 tasks (T20 added by the 2026-08-14 architecture review). If you cross 30 h, stop and revisit the architecture (ROADMAP exit criteria).
 
 ---
 
@@ -785,14 +785,16 @@ The cost of that, stated rather than discovered later: **the site can disagree w
 
 **Done when:**
 - [ ] Pages URL is live and public
-- [ ] Rebuilds on push to `main`
+- [x] Rebuilds on push to `main`
 - [ ] Works in a private window
-- [ ] Installs the `viz` group; the CI workflow of T16 does not
-- [ ] The three notebooks are **not** rendered or executed — they stay in the repo (AD-016)
+- [x] Installs the `viz` group; the CI workflow of T16 does not
+- [x] The three notebooks are **not** rendered or executed — they stay in the repo (AD-016)
 
 **Verify:** open the URL on your phone.
 
-**Commit:** `ci: publish site to GitHub Pages`
+**Commit:** `ci: publish site to GitHub Pages` — committed. The two open boxes need the live URL, which is the one thing a local check cannot stand in for.
+
+**Added by T20:** the "site can disagree with the pipeline" cost above is no longer only stated — the provenance in the CSV header is now checked against the committed pin and schema in CI (AD-022). It catches the wrong partition and a drifted export date; it does not catch a stale exclusion list over the right partition.
 
 ---
 
@@ -819,9 +821,54 @@ cd $(mktemp -d) && git clone <repo> h && cd h && /usr/bin/time -l make all
 
 ---
 
+### T20: Achados da revisão de arquitetura — DONE
+
+**What:** os quatro achados implementáveis da revisão de 14/08/2026. Os outros dois viraram decisão de M1 (AD-017, AD-018, AD-019, AD-021) e não têm código em M0.
+**Where:** `Makefile`, `src/hindsight/{write,metrics,cli,roundtrip}.py`, `src/hindsight/analysis/export.py`, `tests/`
+**Depends on:** T16 · **Requirement:** M0-17, M0-20, M0-21
+
+**Done when:**
+- [x] `make test` deixa de ser um stub que sai 1 — `make all` roda de ponta a ponta
+- [x] `repeated_report_ids` no `metrics.json`, as duas linhas mantidas (AD-020)
+- [x] `Tables.from_rows` levanta `BrokenTables` num id repetido em vez de descartar uma linha em silêncio (AD-020)
+- [x] `export.provenance()` lê o cabeçalho do CSV publicado, e o CI o confere contra o pin e o schema versionados (AD-022)
+- [x] A macro `todo` do Makefile sai junto — nenhum alvo a usava mais
+
+**Deviations, and why:**
+
+- **A ingestão conta e mantém; a reconstrução recusa.** Metades deliberadamente diferentes. Jogar a linha fora na escrita seria decidir M2 na ingestão. Reconstruir escolhendo uma das duas passaria no teste sem ser o inverso da escrita, que é a forma de falha de L-008 — o teste construído para pegar perda silenciosa virando o mecanismo que a esconde.
+- **A guarda do CSV checa procedência, não valor.** `data/parquet/` é gitignored e baixar a partição por push é o que o AC5 do P1 recusou. O que sobra é amarrar o cabeçalho ao pin e ao schema versionados. O que ela não pega fica escrito na spec em vez de implícito.
+
+**Verify:**
+```
+$ make test
+202 passed, 1 deselected in 1.61s
+
+$ uv run pytest -m slow -q
+1 passed, 202 deselected in 24.61s          # 12.000/12.000 com a guarda de id
+
+$ uv run hindsight ingest 2025q1/0001-of-0028
+report                 12,000
+report_drug            71,990
+report_reaction        44,916
+report_duplicate        7,872
+dim_openfda             2,251
+openfda distintos       2,251
+ids repetidos               0
+parquet                  4.62 MB   175.0x vs json   35.2x vs zip
+
+$ diff reports/data/prr_top.csv <(regerado do Parquet local)
+                                             # sem saída: o CSV publicado reproduz
+```
+A suíte era 191 testes antes; os 11 novos cobrem a contagem de repetidos, a recusa na reconstrução e a procedência do CSV. Todos os números da ingestão reproduzem os de T9.
+
+**Commit:** `fix: contagem de ids repetidos, guarda de procedência e make test`
+
+---
+
 ## Phase 6 — Era check
 
-### T19: 2005-era partition
+### T19: early-era partition
 
 **What:** Run the same pipeline against an early partition. Record compression ratio, row counts, and every field present in 2025 but absent in 2005.
 **Where:** `schema/<2005-partition>.json`, STATE.md
@@ -829,17 +876,26 @@ cd $(mktemp -d) && git clone <repo> h && cd h && /usr/bin/time -l make all
 
 **Concept:** *Schema drift, discovered rather than assumed.* Every storage number in this project comes from one 2025 partition. FAERS field layouts have changed since 2004, so this is where you find out whether M1's sizing is real. Diffing two committed schema files **is** the drift detector — you're prototyping M1's mechanism by hand, once, before automating it.
 
+**Corrected 2026-08-14.** This task was written against numbers and facts that later tasks superseded, and executing it as written would have compared against the wrong baseline:
+
+- The ratio to beat is **175×**, measured by T9 on `2025q1/0001-of-0028`. The 338× came from the partition the 2026-08-10 export no longer contains (L-006), and L-003 already annotates it as history rather than measurement.
+- The new lesson is **L-013**. L-006 already exists and is about re-chunking.
+- **openFDA starts at 2004q1, not 2005**, and the export carries a non-quarter `all_other/` bucket of 4 partitions (L-006). Pick the id from the manifest; do not pattern-match `YYYYqN`, which silently drops those four.
+- This is also where **AD-017's era definition** gets prototyped by hand: the field-level diff is what says whether 2004–2005 is one era with 2025 or a different one.
+
 **Done when:**
-- [ ] A 2005-era partition ingests without crashing
-- [ ] Its compression ratio is measured and compared to 338×
-- [ ] The schema diff against 2025 is recorded as a field-level list
-- [ ] A new Lesson (L-006) is written into STATE.md with real numbers
+- [ ] An early-era partition (2004q1 onward) ingests without crashing
+- [ ] Its compression ratio is measured and compared to **175×** (T9), not to the superseded 338×
+- [ ] The schema diff against 2025 is recorded as a field-level list, and read as evidence for where an era boundary falls (AD-017)
+- [ ] A new Lesson **L-013** is written into STATE.md with real numbers
+- [ ] `repeated_report_ids` is recorded for that partition too — the 0-of-12,000 in 2025 is one export's property, not the corpus's (AD-020)
 - [ ] If the ratio is dramatically worse, the full-corpus projection is revised **before** M1 starts
 
 **Verify:**
 ```bash
-uv run hindsight ingest 2005q1/...
-diff <(jq -S 'keys' schema/2005*.json) <(jq -S 'keys' schema/2025*.json)
+uv run hindsight ingest 2004q1/<part-from-the-manifest>
+diff <(jq -S '.tables | map_values(keys)' schema/2004*.json) \
+     <(jq -S '.tables | map_values(keys)' schema/2025*.json)
 ```
 
 **Commit:** `feat: era drift check on 2005 partition`
@@ -859,6 +915,7 @@ diff <(jq -S 'keys' schema/2005*.json) <(jq -S 'keys' schema/2025*.json)
 | T14 | five artifacts after AD-016 | ⚠️ now the second-largest task. Split into T14a notebooks / T14b report if the word budget fights back |
 | T15–T17 | one config each | ✅ |
 | T18, T19 | verification, not construction | ✅ |
+| T20 | four review findings, one commit | ✅ |
 
 **T9 is the one to watch.** If pass 1 fights you for more than 90 minutes, split it and commit the schema inference on its own.
 
@@ -866,5 +923,5 @@ diff <(jq -S 'keys' schema/2005*.json) <(jq -S 'keys' schema/2025*.json)
 
 ## Definition of done for M0
 
-All 19 tasks committed, CI green, a public URL with a chart, and these four numbers measured rather than projected:
-distinct `openfda` blocks (T9) · peak RSS (T18) · 2005 compression ratio (T19) · 2005↔2025 schema diff (T19).
+All 20 tasks committed, CI green, a public URL with a chart, and these four numbers measured rather than projected:
+distinct `openfda` blocks (T9) · peak RSS (T18) · early-era compression ratio against T9's 175× (T19) · early-era ↔ 2025 schema diff (T19).
