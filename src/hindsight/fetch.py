@@ -53,7 +53,7 @@ def _read_pin(path: Path) -> Pin | None:
             bytes=record["bytes"],
         )
     except (json.JSONDecodeError, KeyError, TypeError, ValueError) as exc:
-        raise FetchError(f"{path} is not a readable pin: {exc}") from exc
+        raise FetchError(f"{path} não é um pin legível: {exc}") from exc
 
 
 def _write_pin(path: Path, pin: Pin) -> None:
@@ -116,14 +116,14 @@ def ensure_local(
         digest, size = _sha256(archive)
 
         if digest == pin.sha256:
-            log.info("cached %s (%s bytes)", partition.id, f"{size:,}")
+            log.info("em cache %s (%s bytes)", partition.id, f"{size:,}")
             return archive
 
         archive.unlink()
 
         raise ChecksumMismatch(
-            f"{archive} does not match its pin ({digest[:12]} vs "
-            f"{pin.sha256[:12]}). Deleted it — re-run to fetch a clean copy."
+            f"{archive} não bate com seu pin ({digest[:12]} vs "
+            f"{pin.sha256[:12]}). Apagado — rode de novo para baixar limpo."
         )
 
     raw_dir.mkdir(parents=True, exist_ok=True)
@@ -141,16 +141,16 @@ def ensure_local(
         partial.unlink()
 
         cause = (
-            "the file it resumed from was not a clean prefix, or openFDA "
-            "rewrote the partition"
+            "o arquivo de onde retomou não era um prefixo limpo, ou o openFDA "
+            "reescreveu a partição"
             if resumed
-            else "openFDA rewrote the partition in place"
+            else "o openFDA reescreveu a partição no lugar"
         )
 
         raise ChecksumMismatch(
-            f"Bytes for {partition.id} disagree with the pin recorded on "
+            f"Os bytes de {partition.id} divergem do pin gravado em "
             f"{pin.export_date} ({digest[:12]} vs {pin.sha256[:12]}): {cause}. "
-            f"Discarded the download — the next run starts clean."
+            f"Download descartado — a próxima execução começa limpa."
         )
 
     partial.replace(archive)
@@ -165,6 +165,6 @@ def ensure_local(
         ),
     )
 
-    log.info("fetched %s (%s bytes) -> %s", partition.id, f"{size:,}", archive)
+    log.info("baixado %s (%s bytes) -> %s", partition.id, f"{size:,}", archive)
 
     return archive

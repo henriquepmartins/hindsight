@@ -108,39 +108,39 @@ def test_stale_suffix_reports_what_the_bucket_actually_holds(load):
 
     assert "'2025q1/0001-of-0034'" in message
     assert "2026-08-10" in message
-    assert "'2025q1' has 3 partitions" in message
+    assert "'2025q1' tem 3 partições" in message
     assert "0001-of-0028 .. 0028-of-0028" in message
 
 
 def test_unknown_bucket_says_the_bucket_is_missing(load):
     export = load(a_manifest())
 
-    with pytest.raises(m.PartitionNotFound, match="No bucket '1999q1'"):
+    with pytest.raises(m.PartitionNotFound, match="não existe o bucket '1999q1'"):
         export.partition("1999q1/0001-of-0001")
 
 
 @pytest.mark.parametrize(
     ("doc", "expected"),
     [
-        pytest.param({}, r"no 'results' under \(top level\)", id="empty"),
+        pytest.param({}, r"não tem 'results' sob \(raiz\)", id="empty"),
         pytest.param(
             {"results": {"medication": {}}},
-            "no 'drug' under results",
+            "não tem 'drug' sob results",
             id="renamed-drug",
         ),
         pytest.param(
             {"results": {"drug": {"event": []}}},
-            "no 'export_date' under results -> drug -> event",
+            "não tem 'export_date' sob results -> drug -> event",
             id="section-is-a-list",
         ),
         pytest.param(
             {"results": {"drug": {"event": {"partitions": []}}}},
-            "no 'export_date' under results -> drug -> event",
+            "não tem 'export_date' sob results -> drug -> event",
             id="no-export-date",
         ),
         pytest.param(
             {"results": {"drug": {"event": {"export_date": "2026-08-10"}}}},
-            "no 'partitions' under results -> drug -> event",
+            "não tem 'partitions' sob results -> drug -> event",
             id="no-partitions",
         ),
     ],
@@ -155,12 +155,12 @@ def test_a_moved_key_names_the_path_it_was_expected_at(load, doc, expected):
     [
         pytest.param(
             a_manifest(export_date=20260810),
-            "export_date should be a string, got int",
+            "export_date deveria ser string, veio int",
             id="date-not-a-string",
         ),
         pytest.param(
             a_manifest(export_date="2026/08/10"),
-            "is not YYYY-MM-DD",
+            "não esta em YYYY-MM-DD",
             id="date-wrong-format",
         ),
         pytest.param(
@@ -169,27 +169,27 @@ def test_a_moved_key_names_the_path_it_was_expected_at(load, doc, expected):
                     "drug": {"event": {"export_date": "2026-08-10", "partitions": {}}}
                 }
             },
-            "partitions should be a list, got dict",
+            "partitions deveria ser uma lista, veio dict",
             id="partitions-not-a-list",
         ),
         pytest.param(
             a_manifest([{"size_mb": "1.00", "records": 1}]),
-            "has no 'file' key",
+            "sem a chave 'file'",
             id="entry-without-a-url",
         ),
         pytest.param(
             a_manifest([{"file": "https://download.open.fda.gov/drug/event/README"}]),
-            "Cannot derive a partition id",
+            "Não da para derivar um id de partição",
             id="url-layout-changed",
         ),
         pytest.param(
             a_manifest([an_entry(size_mb="about 150 MB")]),
-            "unreadable size or record count",
+            "tamanho ou contagem ilegível",
             id="unparseable-size",
         ),
         pytest.param(
             a_manifest([an_entry(records=None)]),
-            "unreadable size or record count",
+            "tamanho ou contagem ilegível",
             id="unparseable-record-count",
         ),
     ],

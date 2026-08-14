@@ -103,9 +103,9 @@ def _ordered(rows: list[dict], table: str, report_id: str) -> list[dict]:
 
     if positions != list(range(len(rows))):
         raise BrokenTables(
-            f"report {report_id!r}: {table} has {SEQ} {positions}, which is not "
-            f"0..{len(rows) - 1}. The original array order cannot be restored "
-            f"from rows that are missing or duplicated."
+            f"relatório {report_id!r}: {table} tem {SEQ} {positions}, que não e "
+            f"0..{len(rows) - 1}. A ordem original do array não da para "
+            f"restaurar de linhas faltando ou duplicadas."
         )
 
     return [
@@ -127,9 +127,9 @@ def _drugs(tables: "Tables", report_id: str) -> list[dict]:
 
         if block is None:
             raise BrokenTables(
-                f"report {report_id!r}: a drug row points at openfda_key "
-                f"{block_key!r}, which {OPENFDA_TABLE} has no row for. The "
-                f"block's contents are gone, not merely unjoined."
+                f"relatório {report_id!r}: uma linha de medicamento aponta para "
+                f"openfda_key {block_key!r}, sem linha correspondente em "
+                f"{OPENFDA_TABLE}. O conteudo do bloco sumiu, não só o join."
             )
 
         drug[OPENFDA] = _entry(block, OPENFDA_KEY)
@@ -154,7 +154,7 @@ def _duplicates(tables: "Tables", report_id: str) -> dict | list[dict] | None:
     raise BrokenTables(
         f"report {report_id!r}: {DUPLICATE_TABLE} holds {len(rows)} rows of "
         f"which {len(bare)} have a null {SEQ}. A null means the source carried "
-        f"a bare object, so it can only ever appear alone — this report is "
+        f"a bare object, só it can only ever appear alone — this report is "
         f"recorded as having been both an object and an array."
     )
 

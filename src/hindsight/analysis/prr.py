@@ -164,8 +164,8 @@ def _directory(partition: str | None, root: Path | str) -> Path:
 
         if not (directory / f"{REPORT_TABLE}.parquet").exists():
             raise PrrError(
-                f"{directory} holds no {REPORT_TABLE}.parquet. "
-                f"Run `make ingest PARTITION={partition}` first."
+                f"{directory} não tem {REPORT_TABLE}.parquet. "
+                f"Rode `make ingest PARTITION={partition}` antes."
             )
 
         return directory
@@ -174,15 +174,15 @@ def _directory(partition: str | None, root: Path | str) -> Path:
 
     if not found:
         raise PrrError(
-            f"No ingested partition under {root}. Run `make ingest` first."
+            f"Nenhuma partição ingerida em {root}. Rode `make ingest` antes."
         )
 
     if len(found) > 1:
         listed = "\n  ".join(str(path) for path in found)
 
         raise PrrError(
-            f"{len(found)} partitions are ingested and PRR is reported per "
-            f"partition, not pooled across eras. Name one:\n  {listed}"
+            f"{len(found)} partições ingeridas, e o PRR e reportado por partição, "
+            f"não somado entre epocas. Escolha uma:\n  {listed}"
         )
 
     return found[0]
@@ -195,9 +195,9 @@ def excluded_terms(
 
     if not path.exists():
         raise PrrError(
-            f"{path} is missing, resolved from {Path.cwd()}. It is committed, so "
-            f"either restore it from git or pass `exclusions=` — the default is "
-            f"relative to the repo root and a notebook runs one level down."
+            f"{path} não existe, resolvido a partir de {Path.cwd()}. O arquivo e "
+            f"versionado: restaure do git ou passe `exclusions=` — o padrão e "
+            f"relativo a raiz do repo e um notebook roda um nivel abaixo."
         )
 
     query = (
@@ -208,13 +208,13 @@ def excluded_terms(
     try:
         rows = connection.sql(query).fetchall()
     except duckdb.Error as exc:
-        raise PrrError(f"{path} did not parse as CSV: {exc}") from exc
+        raise PrrError(f"{path} não foi lido como CSV: {exc}") from exc
 
     if not rows:
         raise PrrError(
-            f"{path} yielded no terms. Its header is prose behind '{COMMENT}' "
-            f"and a read without comment='{COMMENT}' returns zero rows, which "
-            f"would silently disable every exclusion."
+            f"{path} não devolveu nenhum termo. O cabeçalho é prosa atras de '{COMMENT}' "
+            f"e uma leitura sem comment='{COMMENT}' retorna zero linhas, o que "
+            f"desligaria todas as exclusoes em silêncio."
         )
 
     return [term for (term,) in rows]
@@ -230,7 +230,7 @@ def top_pairs(
     exclusions: Path = EXCLUSIONS,
 ) -> list[Pair]:
     if min_count < 1:
-        raise PrrError(f"min_count is {min_count}; a pair seen zero times is not a pair.")
+        raise PrrError(f"min_count é {min_count}; um par visto zero vezes não é um par.")
 
     directory = _directory(partition, root)
     connection = duckdb.connect()

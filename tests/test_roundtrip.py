@@ -244,7 +244,7 @@ def test_collapsing_empty_openfda_into_absent_is_caught(sample):
     assert empty, (
         "the fixture's `openfda: {}` never reached dim_openfda. If "
         "`OpenfdaDimension.add` is testing the block for truthiness instead of "
-        "`is not None`, that IS the L-005 bug and this is the test saying so."
+        "`is not None`, that IS the L-005 bug and this is the test saying só."
     )
     empty_key = empty[0]
 

@@ -99,7 +99,7 @@ def test_an_object_here_and_an_array_there_raises():
 
 
 def test_two_scalar_types_in_one_field_raise():
-    with pytest.raises(SchemaConflict, match="int64 here and string"):
+    with pytest.raises(SchemaConflict, match="int64 aqui e string"):
         report_schema(report(serious="1"), report(serious=2))
 
 
@@ -202,7 +202,7 @@ def test_a_list_type_with_two_item_types_is_refused(tmp_path):
     tables["report"] = {"tags": ["string", "int64"]}
     path.write_text(json.dumps({"source": {}, "tables": tables}))
 
-    with pytest.raises(UnreadableSchema, match="one-element array"):
+    with pytest.raises(UnreadableSchema, match="array de um elemento"):
         load(path)
 
 

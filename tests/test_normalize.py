@@ -106,7 +106,7 @@ def test_a_truncation_collision_raises_rather_than_merging(monkeypatch, dimensio
 
     dimension.add(ASPIRIN)
 
-    with pytest.raises(KeyCollision, match="truncate to 'ffffffffffffffff'"):
+    with pytest.raises(KeyCollision, match="truncam para 'ffffffffffffffff'"):
         dimension.add({})
 
 
@@ -308,7 +308,7 @@ def test_a_duplicate_entry_that_is_not_an_object_raises(dimension):
 
 
 def test_a_duplicate_that_is_neither_object_nor_array_raises(dimension):
-    with pytest.raises(UnexpectedReportShape, match="'reportduplicate' should be an array"):
+    with pytest.raises(UnexpectedReportShape, match="'reportduplicate' deveria ser um array"):
         split(report(reportduplicate="D1"), dimension)
 
 
@@ -318,17 +318,17 @@ def test_a_report_without_an_id_raises_rather_than_orphaning_its_rows(dimension)
 
 
 def test_a_patient_that_is_not_an_object_raises(dimension):
-    with pytest.raises(UnexpectedReportShape, match="'patient' should be an object"):
+    with pytest.raises(UnexpectedReportShape, match="'patient' deveria ser um objeto"):
         split(report(patient="unexpected"), dimension)
 
 
 def test_a_drug_array_that_is_not_an_array_raises_rather_than_being_iterated(dimension):
-    with pytest.raises(UnexpectedReportShape, match="'drug' should be an array, found str"):
+    with pytest.raises(UnexpectedReportShape, match="'drug' deveria ser um array, veio str"):
         split(report(patient={"drug": "ASPIRIN"}), dimension)
 
 
 def test_a_drug_entry_that_is_not_an_object_raises(dimension):
-    with pytest.raises(UnexpectedReportShape, match=r"'drug'\[0\] should be an object"):
+    with pytest.raises(UnexpectedReportShape, match=r"'drug'\[0\] deveria ser um objeto"):
         split(report(patient={"drug": ["ASPIRIN"]}), dimension)
 
 

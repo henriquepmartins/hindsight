@@ -35,8 +35,8 @@ def _provenance(directory: Path) -> tuple[str, str]:
 
     if not path.exists():
         raise PrrError(
-            f"{path} is missing, so the export date behind these rows is unknown. "
-            f"Re-run the ingest for this partition."
+            f"{path} não existe, entao a data de export por tras destas linhas e "
+            f"desconhecida. Rode a ingestao desta partição de novo."
         )
 
     metrics = json.loads(path.read_text())
@@ -62,13 +62,13 @@ def write_csv(
 
     with path.open("w", newline="") as handle:
         handle.write(
-            f"# hindsight — drug-event pairs over one FAERS partition\n"
+            f"# hindsight — pares medicamento-evento sobre uma partição do FAERS\n"
             f"# partition: {partition_id}\n"
             f"# export_date: {export_date}\n"
             f"# min_count: {min_count}\n"
-            f"# crowding_cut: {cut:g} distinct drugs "
-            f"(the {quantile:g} quantile of this partition)\n"
-            f"# pandas.read_csv(path, comment='#'). Counts are distinct reports.\n"
+            f"# corte_lotacao: {cut:g} medicamentos distintos "
+            f"(o quantil {quantile:g} desta partição)\n"
+            f"# pandas.read_csv(path, comment='#'). Contagens são de relatórios distintos.\n"
         )
 
         writer = csv.writer(handle, quoting=csv.QUOTE_ALL)
@@ -95,8 +95,8 @@ def _verify(path: Path, *, expected: int) -> None:
 
     if header != COLUMNS or len(body) != expected or widths not in ({len(COLUMNS)}, set()):
         raise PrrError(
-            f"{path} was written but does not read back: {len(body)} rows "
-            f"(expected {expected}), widths {sorted(widths)}, header {header}."
+            f"{path} foi escrito mas não volta na leitura: {len(body)} linhas "
+            f"(esperado {expected}), larguras {sorted(widths)}, cabeçalho {header}."
         )
 
 

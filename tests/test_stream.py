@@ -81,14 +81,14 @@ def test_the_first_report_arrives_before_the_rest_is_parsed(tmp_path):
 def test_an_archive_with_no_json_member_raises_naming_its_contents(tmp_path):
     archive = build(tmp_path / "wrong.zip", {"README.txt": "no json here"})
 
-    with pytest.raises(UnexpectedArchiveShape, match=r"found 0.*README\.txt"):
+    with pytest.raises(UnexpectedArchiveShape, match=r"achei 0.*README\.txt"):
         list(iter_reports(archive))
 
 
 def test_two_json_members_raise_rather_than_picking_one(tmp_path):
     archive = build(tmp_path / "two.zip", {MEMBER: body(REPORTS), "extra.json": "{}"})
 
-    with pytest.raises(UnexpectedArchiveShape, match="found 2"):
+    with pytest.raises(UnexpectedArchiveShape, match="achei 2"):
         list(iter_reports(archive))
 
 
@@ -104,14 +104,14 @@ def test_reports_moved_out_of_results_raise_rather_than_yielding_nothing(tmp_pat
     moved = json.dumps({"meta": {}, "reports": REPORTS})
     archive = build(tmp_path / "moved.zip", {MEMBER: moved})
 
-    with pytest.raises(UnexpectedArchiveShape, match="nothing came out"):
+    with pytest.raises(UnexpectedArchiveShape, match="nada saiu"):
         next(iter_reports(archive))
 
 
 def test_an_empty_results_array_raises(tmp_path):
     archive = build(tmp_path / "empty.zip", {MEMBER: body([])})
 
-    with pytest.raises(UnexpectedArchiveShape, match="nothing came out"):
+    with pytest.raises(UnexpectedArchiveShape, match="nada saiu"):
         next(iter_reports(archive))
 
 

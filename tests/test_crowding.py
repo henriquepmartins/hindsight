@@ -55,7 +55,7 @@ def test_the_cut_sits_at_the_quantile_asked_for(tmp_path):
 def test_a_quantile_outside_the_interval_is_refused(tmp_path, quantile):
     corpus(tmp_path, {"1": ["A"]})
 
-    with pytest.raises(PrrError, match="strictly inside"):
+    with pytest.raises(PrrError, match="estritamente entre"):
         breadth(quantile=quantile, root=tmp_path)
 
 
@@ -101,5 +101,5 @@ def test_repetition_does_not_inflate_the_overlap(tmp_path):
 def test_one_report_has_nothing_to_be_compared_against(tmp_path):
     corpus(tmp_path, {"1": ["A"]})
 
-    with pytest.raises(PrrError, match="two reports"):
+    with pytest.raises(PrrError, match="dois relatórios"):
         overlap(["1"], root=tmp_path)

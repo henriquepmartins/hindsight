@@ -149,7 +149,7 @@ def test_a_rotted_local_file_is_deleted_and_raises(server, store, partition):
     archive = store(partition)
     archive.write_bytes(b"corrupted")
 
-    with pytest.raises(f.ChecksumMismatch, match="does not match its pin"):
+    with pytest.raises(f.ChecksumMismatch, match="não bate com seu pin"):
         store(partition)
 
     assert not archive.exists()
@@ -161,7 +161,7 @@ def test_a_partition_rewritten_in_place_is_refused(server, store, partition):
 
     server.body = BODY + b"openFDA revised this"
 
-    with pytest.raises(f.ChecksumMismatch, match="openFDA rewrote the partition in place"):
+    with pytest.raises(f.ChecksumMismatch, match="o openFDA reescreveu a partição no lugar"):
         store(partition)
 
     assert not (store.raw / "2025q1-0001-of-0028.zip").exists()
@@ -175,7 +175,7 @@ def test_a_mismatch_after_resuming_names_both_causes(server, store, partition):
     archive.unlink()
     archive.with_name(f"{archive.name}.part").write_bytes(b"garbage!!!")
 
-    with pytest.raises(f.ChecksumMismatch, match="not a clean prefix, or openFDA rewrote"):
+    with pytest.raises(f.ChecksumMismatch, match="não era um prefixo limpo, ou o openFDA reescreveu"):
         store(partition)
 
 
@@ -183,5 +183,5 @@ def test_an_unreadable_pin_raises_rather_than_re_downloading(server, store, part
     store(partition)
     (store.pins / "2025q1-0001-of-0028.json").write_text("{ truncated")
 
-    with pytest.raises(f.FetchError, match="not a readable pin"):
+    with pytest.raises(f.FetchError, match="não é um pin legível"):
         store(partition)

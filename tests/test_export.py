@@ -76,13 +76,13 @@ def test_the_header_carries_what_produced_the_rows(three_pairs):
     assert any("2025q1/0001-of-0001" in line for line in header)
     assert any("2026-08-10" in line for line in header)
     assert any("min_count: 3" in line for line in header)
-    assert any("crowding_cut" in line for line in header)
+    assert any("corte_lotacao" in line for line in header)
 
 
 def test_a_partition_with_no_metrics_refuses_rather_than_guessing(tmp_path):
     corpus(tmp_path / "parquet", {"1": (["A"], ["X"])}, metrics=False)
 
-    with pytest.raises(PrrError, match="export date"):
+    with pytest.raises(PrrError, match="data de export"):
         write_csv(tmp_path / "out.csv", root=tmp_path / "parquet")
 
 

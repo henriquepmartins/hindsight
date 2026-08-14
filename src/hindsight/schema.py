@@ -90,8 +90,8 @@ def _observe(value: object, known: Node | None, path: str) -> Node:
     if isinstance(value, dict):
         if known is not None and not isinstance(known, Struct):
             raise SchemaConflict(
-                f"{path} is an object here and {_describe(known)} elsewhere in "
-                f"the same partition. Arrow holds one type per column."
+                f"{path} é um objeto aqui e {_describe(known)} em outro ponto da "
+                f"mesma partição. O Arrow guarda um tipo por coluna."
             )
 
         node = known if isinstance(known, Struct) else Struct()
@@ -104,8 +104,8 @@ def _observe(value: object, known: Node | None, path: str) -> Node:
     if isinstance(value, list):
         if known is not None and not isinstance(known, ListOf):
             raise SchemaConflict(
-                f"{path} is an array here and {_describe(known)} elsewhere in "
-                f"the same partition. Arrow holds one type per column."
+                f"{path} é um array aqui e {_describe(known)} em outro ponto da "
+                f"mesma partição. O Arrow guarda um tipo por coluna."
             )
 
         node = known if isinstance(known, ListOf) else ListOf()
@@ -119,9 +119,9 @@ def _observe(value: object, known: Node | None, path: str) -> Node:
 
     if scalar is None:
         raise SchemaConflict(
-            f"{path} is a {type(value).__name__}, which is not something JSON "
-            f"produces. The stream should yield only str, bool, int, float, "
-            f"list, dict and None."
+            f"{path} é um {type(value).__name__}, que não é algo que JSON produz. "
+            f"O stream deveria devolver só str, bool, int, float, list, dict "
+            f"e None."
         )
 
     if known is None:
@@ -129,9 +129,9 @@ def _observe(value: object, known: Node | None, path: str) -> Node:
 
     if known != scalar:
         raise SchemaConflict(
-            f"{path} is {scalar} here and {_describe(known)} elsewhere in the "
-            f"same partition. Neither is coerced into the other — record which "
-            f"reports disagree and decide, rather than widening silently."
+            f"{path} é {scalar} aqui e {_describe(known)} em outro ponto da mesma "
+            f"partição. Nenhum é convertido no outro — registre quais "
+            f"relatórios divergem e decida, em vez de alargar em silêncio."
         )
 
     return scalar
@@ -147,10 +147,10 @@ def _arrow(node: Node | None, path: str) -> pa.DataType:
     if isinstance(node, Struct):
         if not node.fields:
             raise UnwritableSchema(
-                f"{path} was an object in every record that had it, and empty "
-                f"in all of them. Parquet cannot write a struct with no fields, "
-                f"so this needs a decision — most likely dropping the field, "
-                f"which is a decision no inference pass gets to make quietly."
+                f"{path} foi um objeto em todo registro que o tinha, e vazio em "
+                f"todos. O Parquet não escreve struct sem campos, entao isso "
+                f"precisa de uma decisão — provavelmente descartar o campo, o "
+                f"que nenhum passo de inferência decide em silêncio."
             )
 
         return pa.struct(
@@ -181,10 +181,10 @@ def _pin_pipeline_columns(nodes: dict[str, Node | None], table: str) -> None:
 
         if observed is not None and observed != declared:
             raise SchemaConflict(
-                f"{table}.{name} is a column this pipeline writes and should be "
-                f"{declared}, but it arrived as {_describe(observed)}. Either "
-                f"`split` no longer writes what it says it writes, or openFDA "
-                f"now has a source field by that name."
+                f"{table}.{name} é uma coluna que este pipeline escreve e deveria ser "
+                f"{declared}, mas chegou como {_describe(observed)}. Ou o "
+                f"`split` parou de escrever o que diz escrever, ou o openFDA "
+                f"passou a ter um campo de fonte com esse nome."
             )
 
         nodes[name] = declared
@@ -229,15 +229,15 @@ def _to_json(arrow_type: pa.DataType) -> object:
         if arrow_type.equals(scalar):
             return name
 
-    raise UnwritableSchema(f"{arrow_type} has no representation in a schema file.")
+    raise UnwritableSchema(f"{arrow_type} não tem representacao num arquivo de schema.")
 
 
 def _from_json(node: object, path: str) -> pa.DataType:
     if isinstance(node, list):
         if len(node) != 1:
             raise UnreadableSchema(
-                f"{path}: a list type is written as a one-element array naming "
-                f"its item type, found {len(node)} elements."
+                f"{path}: um tipo lista se escreve como array de um elemento nomeando "
+                f"o tipo do item, achei {len(node)} elementos."
             )
 
         return pa.list_(_from_json(node[0], f"{path}[]"))
@@ -254,8 +254,8 @@ def _from_json(node: object, path: str) -> pa.DataType:
         return ARROW_SCALARS[node]
 
     raise UnreadableSchema(
-        f"{path}: {node!r} is not a type this module writes "
-        f"({', '.join(sorted(ARROW_SCALARS))}, an object, or a one-element array)."
+        f"{path}: {node!r} não é um tipo que este módulo escreve "
+        f"({', '.join(sorted(ARROW_SCALARS))}, um objeto, ou array de um elemento)."
     )
 
 

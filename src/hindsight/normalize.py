@@ -88,9 +88,9 @@ class OpenfdaDimension:
 
         if known != digest:
             raise KeyCollision(
-                f"Two different openfda blocks both truncate to {block_key!r} "
-                f"({digest} vs {known}). Widen KEY_LENGTH before ingesting "
-                f"further — dim_openfda would merge them."
+                f"Dois blocos openfda diferentes truncam para {block_key!r} "
+                f"({digest} vs {known}). Aumente KEY_LENGTH antes de seguir "
+                f"ingerindo — dim_openfda juntaria os dois."
             )
 
         return block_key, None
@@ -119,8 +119,8 @@ def _row(columns: dict, fields: dict, table: str) -> dict:
 
     if clash:
         raise UnexpectedReportShape(
-            f"{table}: {sorted(clash)} names both a column this module writes "
-            f"and a field in the source. One of the two values would be lost."
+            f"{table}: {sorted(clash)} é ao mesmo tempo uma coluna que este módulo "
+            f"escreve e um campo da fonte. Um dos dois valores se perderia."
         )
 
     return columns | fields
@@ -131,9 +131,9 @@ def _report_id(report: dict) -> str:
 
     if report_id is None:
         raise UnexpectedReportShape(
-            f"A report arrived with no {REPORT_ID!r}. It is the only join key "
-            f"back to its drug and reaction rows, so they would be orphaned. "
-            f"The report's fields were {sorted(report)}."
+            f"Chegou um relatório sem {REPORT_ID!r}. E a única chave de volta para "
+            f"suas linhas de medicamento e reação, que ficariam órfãs. "
+            f"Os campos do relatório eram {sorted(report)}."
         )
 
     return report_id
@@ -147,7 +147,7 @@ def _patient(report: dict, report_id: str) -> dict:
 
     if not isinstance(patient, dict):
         raise UnexpectedReportShape(
-            f"report {report_id!r}: {PATIENT!r} should be an object, found "
+            f"relatório {report_id!r}: {PATIENT!r} deveria ser um objeto, veio "
             f"{type(patient).__name__}."
         )
 
@@ -162,15 +162,15 @@ def _entries(container: dict, field: str, report_id: str) -> Iterator[tuple[int,
 
     if not isinstance(entries, list):
         raise UnexpectedReportShape(
-            f"report {report_id!r}: {field!r} should be an array, found "
+            f"relatório {report_id!r}: {field!r} deveria ser um array, veio "
             f"{type(entries).__name__}."
         )
 
     for seq, entry in enumerate(entries):
         if not isinstance(entry, dict):
             raise UnexpectedReportShape(
-                f"report {report_id!r}: {field!r}[{seq}] should be an object, "
-                f"found {type(entry).__name__}."
+                f"relatório {report_id!r}: {field!r}[{seq}] deveria ser um objeto, "
+                f"veio {type(entry).__name__}."
             )
 
         yield seq, entry

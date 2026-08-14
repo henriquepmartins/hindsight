@@ -36,11 +36,11 @@ def _schemas(partition: Partition, archive: Path, *, reinfer: bool) -> Schemas:
     path = SCHEMA_DIR / f"{partition.stem}.json"
 
     if path.exists() and not reinfer:
-        log.info("schema %s (committed)", path)
+        log.info("schema %s (versionado)", path)
 
         return schema.load(path)
 
-    log.info("pass 1: inferring the schema from every record")
+    log.info("passo 1: inferindo o schema a partir de todos os registros")
     inferred = schema.infer(iter_reports(archive))
     schema.save(
         path,
@@ -51,7 +51,7 @@ def _schemas(partition: Partition, archive: Path, *, reinfer: bool) -> Schemas:
             "records": partition.records,
         },
     )
-    log.info("schema %s (inferred)", path)
+    log.info("schema %s (inferido)", path)
 
     return inferred
 
@@ -60,12 +60,12 @@ def _report(summary: dict) -> None:
     rows = summary["rows"]
     coverage = summary["coverage"]
 
-    print(f"partition          {summary['partition']} (export {summary['export_date']})")
+    print(f"partição           {summary['partition']} (export {summary['export_date']})")
 
     for table, count in rows.items():
         print(f"{table:<18} {count:>10,}")
 
-    print(f"distinct openfda   {summary['distinct_openfda']:>10,}")
+    print(f"openfda distintos  {summary['distinct_openfda']:>10,}")
     print(
         f"parquet            {summary['bytes']['parquet'] / 1e6:>10.2f} MB"
         f"   {summary['compression']['vs_json']}x vs json"
@@ -73,7 +73,7 @@ def _report(summary: dict) -> None:
     )
 
     for column, rate in coverage.items():
-        share = "absent from this partition" if rate is None else f"{rate:.1%}"
+        share = "ausente nesta partição" if rate is None else f"{rate:.1%}"
         print(f"{column:<18} {share:>10}")
 
 
@@ -82,7 +82,7 @@ def _ingest(partition_id: str, *, reinfer: bool) -> None:
     archive = ensure_local(partition)
     schemas = _schemas(partition, archive, reinfer=reinfer)
 
-    log.info("pass 2: writing parquet against the frozen schema")
+    log.info("passo 2: escrevendo parquet contra o schema congelado")
     written = write_partition(
         iter_reports(archive), schemas, PARQUET_DIR / partition_dir(partition.id)
     )
@@ -100,38 +100,38 @@ def _ingest(partition_id: str, *, reinfer: bool) -> None:
 
     if summary["rows"][REPORT_TABLE] != partition.records:
         raise IngestError(
-            f"{written.directory} holds {summary['rows'][REPORT_TABLE]:,} report "
-            f"rows and openFDA's manifest says {partition.records:,}. Reports "
-            f"went missing between the zip and the Parquet."
+            f"{written.directory} tem {summary['rows'][REPORT_TABLE]:,} linhas de "
+            f"relatório e o manifesto do openFDA diz {partition.records:,}. "
+            f"Relatorios sumiram entre o zip e o Parquet."
         )
 
 
 def _pairs(pairs: list[Pair], *, min_count: int) -> None:
     if not pairs:
-        print(f"No drug-event pair reaches {min_count} co-reports.")
+        print(f"Nenhum par medicamento-evento chega a {min_count} co-relatos.")
 
         return
 
     print(
-        f"{'drug':<30} {'event':<26} {'a':>5} {'b':>6} {'c':>5} {'d':>7} "
-        f"{'PRR':>9} {'chi2':>9}  signal"
+        f"{'medicamento':<30} {'evento':<26} {'a':>5} {'b':>6} {'c':>5} {'d':>7} "
+        f"{'PRR':>9} {'chi2':>9}  sinal"
     )
 
     for pair in pairs:
-        ratio = "undefined" if pair.prr is None else f"{pair.prr:,.1f}"
+        ratio = "indefinido" if pair.prr is None else f"{pair.prr:,.1f}"
         chi2 = "" if pair.chi2 is None else f"{pair.chi2:,.1f}"
         print(
             f"{pair.drug[:30]:<30} {pair.event[:26]:<26} {pair.a:>5,} {pair.b:>6,} "
             f"{pair.c:>5,} {pair.d:>7,} {ratio:>9} {chi2:>9}  "
-            f"{'yes' if pair.signal else '-'}"
+            f"{'sim' if pair.signal else '-'}"
         )
 
     print(
-        f"\n{pairs[0].reports:,} reports · min {min_count} co-reports · "
-        f"signal = Evans (PRR>={SIGNAL_PRR:.0f}, chi2>={SIGNAL_CHI2:.0f}, "
-        f"a>={SIGNAL_MIN_COUNT}) · raw medicinalproduct strings, no entity "
-        f"resolution and no deduplication (M2) · disproportionate reporting is "
-        f"not causation"
+        f"\n{pairs[0].reports:,} relatórios · min {min_count} co-relatos · "
+        f"sinal = Evans (PRR>={SIGNAL_PRR:.0f}, chi2>={SIGNAL_CHI2:.0f}, "
+        f"a>={SIGNAL_MIN_COUNT}) · strings cruas de medicinalproduct, sem "
+        f"resolução de entidades e sem deduplicação (M2) · reporte "
+        f"desproporcional não é causalidade"
     )
 
 
@@ -147,8 +147,8 @@ def _analyze(
         written = write_csv(min_count=min_count, partition=partition_id)
 
         print(
-            f"{written.path}  {written.pairs:,} pairs · {written.crowded:,} crowded "
-            f"(>= {written.cut:g} distinct drugs) · {written.partition}"
+            f"{written.path}  {written.pairs:,} pares · {written.crowded:,} lotados "
+            f"(>= {written.cut:g} medicamentos distintos) · {written.partition}"
         )
 
         return
@@ -168,43 +168,43 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="hindsight")
     commands = parser.add_subparsers(dest="command", required=True)
 
-    fetch = commands.add_parser("fetch", help="Download and pin one partition")
+    fetch = commands.add_parser("fetch", help="Baixa e fixa uma partição")
     fetch.add_argument("partition_id", help='e.g. "2025q1/0001-of-0028"')
 
-    ingest = commands.add_parser("ingest", help="Normalize one partition to Parquet")
+    ingest = commands.add_parser("ingest", help="Normaliza uma partição para Parquet")
     ingest.add_argument("partition_id", help='e.g. "2025q1/0001-of-0028"')
     ingest.add_argument(
         "--reinfer",
         action="store_true",
-        help="Re-run pass 1 and overwrite the committed schema for this partition",
+        help="Refaz o passo 1 e sobrescreve o schema versionado desta partição",
     )
 
-    analyze = commands.add_parser("analyze", help="Rank drug-event pairs by PRR")
+    analyze = commands.add_parser("analyze", help="Ordena pares medicamento-evento por PRR")
     analyze.add_argument(
         "partition_id",
         nargs="?",
-        help="Defaults to the only ingested partition; required once there are two",
+        help="Assume a única partição ingerida; obrigatório quando houver duas",
     )
     analyze.add_argument("--limit", type=int, default=DEFAULT_LIMIT)
     analyze.add_argument(
         "--min-count",
         type=int,
         default=DEFAULT_MIN_COUNT,
-        help=f"Minimum co-reports per pair (default {DEFAULT_MIN_COUNT})",
+        help=f"Minimo de co-relatos por par (padrão {DEFAULT_MIN_COUNT})",
     )
     analyze.add_argument(
         "--signals-only",
         action="store_true",
-        help="Keep only pairs meeting Evans. It narrows the table; it does not "
-        "clean it — the top of this partition clears the criterion and is "
-        "still duplicates",
+        help="Mantem só os pares que atendem Evans. Estreita a tabela; não a "
+        "limpa — o topo desta partição passa no critério e continua sendo "
+        "duplicata",
     )
     analyze.add_argument(
         "--csv",
         action="store_true",
         dest="to_csv",
-        help="Write every pair to reports/data/prr_top.csv — the file the "
-        "published page reads, since data/parquet/ is gitignored",
+        help="Escreve todos os pares em reports/data/prr_top.csv — o arquivo que "
+        "a pagina publicada le, já que data/parquet/ esta no gitignore",
     )
 
     args = parser.parse_args(argv)

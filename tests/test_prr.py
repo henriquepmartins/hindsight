@@ -159,7 +159,7 @@ def test_an_excluded_event_still_leaves_its_report_in_the_corpus(tmp_path):
 
 
 def test_an_empty_exclusion_list_is_an_error_not_an_empty_filter(tmp_path, empty_list):
-    with pytest.raises(PrrError, match="no terms"):
+    with pytest.raises(PrrError, match="nenhum termo"):
         excluded_terms(duckdb.connect(), empty_list)
 
 
@@ -172,7 +172,7 @@ def test_reading_the_list_without_the_comment_flag_returns_nothing(tmp_path):
 
 
 def test_a_missing_exclusion_list_says_it_is_committed(tmp_path):
-    with pytest.raises(PrrError, match="restore it from git"):
+    with pytest.raises(PrrError, match="restaure do git"):
         excluded_terms(duckdb.connect(), tmp_path / "gone.csv")
 
 
@@ -203,7 +203,7 @@ def test_the_default_threshold_is_three():
 
 
 def test_a_threshold_below_one_is_refused(tmp_path):
-    with pytest.raises(PrrError, match="not a pair"):
+    with pytest.raises(PrrError, match="não é um par"):
         top_pairs(min_count=0, root=tmp_path)
 
 
@@ -242,7 +242,7 @@ def test_two_partitions_refuse_to_pool(tmp_path):
 
     assert len(partitions(root)) == 2
 
-    with pytest.raises(PrrError, match="not pooled across eras"):
+    with pytest.raises(PrrError, match="não somado entre epocas"):
         top_pairs(root=root, exclusions=exclusions(tmp_path))
 
 

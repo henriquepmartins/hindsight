@@ -75,7 +75,7 @@ def breadth(
     root: Path = PARQUET_DIR,
 ) -> dict[str, float]:
     if not 0 < quantile < 1:
-        raise PrrError(f"quantile is {quantile}; it has to sit strictly inside 0 and 1.")
+        raise PrrError(f"quantile é {quantile}; precisa ficar estritamente entre 0 e 1.")
 
     directory = _directory(partition, root)
     connection = duckdb.connect()
@@ -116,7 +116,7 @@ def overlap(
     root: Path = PARQUET_DIR,
 ) -> list[tuple[str, str, float]]:
     if len(reports) < 2:
-        raise PrrError("Overlap needs two reports to compare.")
+        raise PrrError("A sobreposição precisa de dois relatórios para comparar.")
 
     directory = _directory(partition, root)
     connection = duckdb.connect()

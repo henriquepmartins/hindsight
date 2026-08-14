@@ -29,8 +29,8 @@ def _sole_json_member(archive: zipfile.ZipFile) -> str:
         contents = ", ".join(repr(info.filename) for info in archive.infolist())
 
         raise UnexpectedArchiveShape(
-            f"{archive.filename} should hold exactly one .json member, found "
-            f"{len(members)}. It contains: {contents or '(nothing)'}."
+            f"{archive.filename} deveria ter exatamente um membro .json, achei "
+            f"{len(members)}. Contem: {contents or '(nada)'}."
         )
 
     return members[0]
@@ -51,8 +51,8 @@ def iter_reports(zip_path: Path | str) -> Iterator[dict]:
 
         if first is None:
             raise UnexpectedArchiveShape(
-                f"{zip_path} parsed, but nothing came out of {REPORTS_PREFIX!r}: "
-                f"the reports array is empty, renamed, or no longer top level."
+                f"{zip_path} foi lido, mas nada saiu de {REPORTS_PREFIX!r}: o array de "
+                f"relatórios esta vazio, renomeado, ou deixou de ser raiz."
             )
 
         yield first
