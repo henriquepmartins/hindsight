@@ -24,7 +24,7 @@
 - Split into fact tables (`report`, `report_drug`, `report_reaction`) + dimension (`openfda`, keyed by content hash)
 - Write partitioned Parquet
 - **Round-trip test in CI** — reconstruct source JSON from the tables, assert byte-identical, fail the build otherwise. Passing 12,000/12,000 on the whole partition (T10) and on the committed ~100-report fixture that CI runs. The **per-era** cadence is a scheduled M1 job with a named owner, not a property of the push CI (AD-019)
-- Compression measured on a 2025 partition: **175× lossless** (T9, ~3.4–3.7 GB projected). The 338× in L-003 came from a partition the current export no longer contains (L-006) and is history, not a baseline. M0 re-runs it on an **early-era** partition — 2004q1 onward, since openFDA does not start at 2005 — where `openfda` enrichment is expected to be sparser and the ratio worse
+- Compression measured on both ends of the corpus: **175×** on a 2025 partition (T9) and **78,8×** on the oldest one (T19). A razão depende da era e o tamanho anda ao contrário dela — a partição de 2004 sai **menor** (2,78 MB contra 4,62 MB) porque a fonte é menos redundante. Projeção só-fatos: **1,7–3,6 GB** (L-013). Os 338× de L-003 vieram de uma partição que o export atual não contém (L-006) e são história
 - Add the MedDRA exclusion list for reporting artifacts (`Off label use`, `Condition aggravated`, …) before computing anything — see L-004
 
 **Query + one finding** — PLANNED
@@ -93,6 +93,8 @@
 ## M2 — Cleaning & Entity Resolution (~30 h)
 
 **Goal:** Turn "Tylenol / TYLENOL / paracetamol / APAP / Tylenlo" into one drug. This is the milestone that decides whether any downstream number means anything.
+
+> **T19 mediu a era antiga e ela é mais dura do que este milestone supõe (L-013).** Em `2004q1`: **`activesubstance` não existe** — e as features abaixo a listam como entrada; **UNII cobre 51,9%** contra 82,9% em 2025, então a cauda sem identificador canônico é de 48% e não dos ~17% de L-004; e **`report_duplicate` tem 0 linhas**, ou seja `duplicatenumb`, em que a deduplicação junta, também não existe. Junto disso, **6 `safetyreportid` repetidos em 12.000**, apontando para submissões distintas (B-004). A era antiga tem mais duplicata e menos ferramenta para achá-la, e o orçamento de 30 h foi dimensionado sem saber disso.
 
 ### Features
 
