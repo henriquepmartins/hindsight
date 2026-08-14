@@ -166,23 +166,29 @@ def test_a_row_the_frozen_schema_has_no_column_for_stops_the_write(tmp_path):
     assert not list((tmp_path / "out").glob("*.parquet"))
 
 
-def test_distinct_ids_are_not_counted_as_repeats(tmp_path):
+def written_report_ids(directory: Path) -> list[str]:
+    table = pq.read_table(directory / "report.parquet")
+
+    return table.column("safetyreportid").to_pylist()
+
+
+def test_distinct_ids_all_reach_the_file(tmp_path):
     reports = [report(safetyreportid=str(n)) for n in range(3)]
-    written = write_partition(iter(reports), infer(iter(reports)), tmp_path / "out")
+    write_partition(iter(reports), infer(iter(reports)), tmp_path / "out")
 
-    assert written.repeated_report_ids == 0
+    assert written_report_ids(tmp_path / "out") == ["0", "1", "2"]
 
 
-def test_a_repeated_safetyreportid_is_counted_and_both_rows_are_kept(tmp_path):
+def test_a_repeated_safetyreportid_keeps_both_rows_in_the_file(tmp_path):
     reports = [report(safetyreportid="1"), report(safetyreportid="1")]
     written = write_partition(iter(reports), infer(iter(reports)), tmp_path / "out")
 
-    assert written.repeated_report_ids == 1
     assert written.rows["report"] == 2
+    assert written_report_ids(tmp_path / "out") == ["1", "1"]
 
 
-def test_the_repeat_count_is_extra_rows_not_distinct_ids(tmp_path):
+def test_the_writer_never_drops_a_repeated_id(tmp_path):
     reports = [report(safetyreportid="1") for _ in range(3)]
-    written = write_partition(iter(reports), infer(iter(reports)), tmp_path / "out")
+    write_partition(iter(reports), infer(iter(reports)), tmp_path / "out")
 
-    assert written.repeated_report_ids == 2
+    assert written_report_ids(tmp_path / "out") == ["1", "1", "1"]

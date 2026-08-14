@@ -332,17 +332,34 @@ def test_the_whole_partition_rebuilds_from_parquet():
     assert compared == 12000
 
 
-def test_a_repeated_report_id_refuses_to_load_rather_than_collapse():
-    row = {"safetyreportid": "1"}
+def tables_with_report_ids(*identifiers: str) -> Tables:
     rows = {table: [] for table in TABLES}
-    rows["report"] = [row, dict(row)]
+    rows["report"] = [{"safetyreportid": i} for i in identifiers]
+
+    return Tables.from_rows(rows)
+
+
+def test_a_repeated_report_id_is_refused_by_name():
+    tables = tables_with_report_ids("1", "1")
 
     with pytest.raises(BrokenTables, match="safetyreportid"):
-        Tables.from_rows(rows)
+        reconstruct(tables, "1")
+
+
+def test_refusing_one_report_does_not_refuse_the_partition():
+    tables = tables_with_report_ids("1", "1", "2")
+
+    assert tables.ambiguous == frozenset({"1"})
+    assert tables.report_ids == ["2"]
+    assert reconstruct(tables, "2") == {"safetyreportid": "2"}
+
+
+def test_three_rows_under_one_id_are_still_one_refusal():
+    tables = tables_with_report_ids("1", "1", "1")
+
+    assert tables.ambiguous == frozenset({"1"})
+    assert tables.report_ids == []
 
 
 def test_distinct_report_ids_still_load():
-    rows = {table: [] for table in TABLES}
-    rows["report"] = [{"safetyreportid": "1"}, {"safetyreportid": "2"}]
-
-    assert Tables.from_rows(rows).report_ids == ["1", "2"]
+    assert tables_with_report_ids("1", "2").report_ids == ["1", "2"]

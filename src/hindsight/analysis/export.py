@@ -35,26 +35,29 @@ PROVENANCE = ("partition", "export_date", "min_count")
 
 
 def provenance(path: Path = DEFAULT_CSV) -> dict[str, str]:
-    if not path.exists():
-        raise PrrError(f"{path} não existe, resolvido a partir de {Path.cwd()}.")
+    if not path.is_file():
+        raise PrrError(
+            f"{path} não é um arquivo, resolvido a partir de {Path.cwd()}."
+        )
 
     found = {}
 
-    with path.open(newline="") as handle:
+    with path.open(newline="", encoding="utf-8") as handle:
         for line in handle:
             if not line.startswith(COMMENT):
                 break
 
             name, separator, value = line[len(COMMENT) :].partition(":")
 
-            if separator and name.strip() in PROVENANCE:
+            if separator and name.strip() in PROVENANCE and value.strip():
                 found[name.strip()] = value.strip()
 
     missing = set(PROVENANCE) - set(found)
 
     if missing:
         raise PrrError(
-            f"{path} não nomeia {sorted(missing)} no cabeçalho. Sem isso a "
+            f"{path} não nomeia {sorted(missing)} no cabeçalho, ou os nomeia "
+            f"sem valor. Sem isso a "
             f"página publicada não da para amarrar a partição que a produziu, e "
             f"uma divergência entre as duas fica ilegivel."
         )
@@ -92,7 +95,7 @@ def write_csv(
 
     path.parent.mkdir(parents=True, exist_ok=True)
 
-    with path.open("w", newline="") as handle:
+    with path.open("w", newline="", encoding="utf-8") as handle:
         handle.write(
             f"# hindsight — pares medicamento-evento sobre uma partição do FAERS\n"
             f"# partition: {partition_id}\n"
@@ -108,6 +111,7 @@ def write_csv(
         writer.writerows(_row(pair, cut) for pair in pairs)
 
     _verify(path, expected=len(pairs))
+    provenance(path)
 
     return Written(
         path=path,
@@ -119,7 +123,7 @@ def write_csv(
 
 
 def _verify(path: Path, *, expected: int) -> None:
-    with path.open(newline="") as handle:
+    with path.open(newline="", encoding="utf-8") as handle:
         rows = [row for row in csv.reader(handle) if not row[0].startswith("#")]
 
     header, body = rows[0], rows[1:]

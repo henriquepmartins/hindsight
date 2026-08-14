@@ -26,7 +26,8 @@ site: ## Escreve o CSV do relatório e renderiza o site em _site/
 	uv run hindsight analyze $(PARTITION) --csv
 	uv run --group viz quarto render
 
-all: install ingest test analyze site ## Tudo, em ordem
+all: install ingest analyze site ## Tudo, em ordem — os testes fecham, sobre o que a cadeia acabou de produzir
+	uv run pytest -q -m "slow or not slow"
 
 clean: ## Remove artefatos derivados (mantém os pins)
 	rm -rf data/raw data/parquet _site .quarto .pytest_cache
