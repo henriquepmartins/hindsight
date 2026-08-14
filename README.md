@@ -1,129 +1,137 @@
 # Hindsight
 
-**Could we have known sooner?**
+**Dava para saber antes?**
 
-When a drug hurts someone — a rash, a heart attack, a death — a report gets filed with the FDA. Twenty million of them sit in a public archive. Sometimes, years later, the FDA issues a safety warning about that drug.
+Quando um medicamento faz mal a alguém — uma erupção, um infarto, uma morte — um relato é registrado no FDA. Vinte milhões deles estão num arquivo público. Às vezes, anos depois, o FDA emite um alerta de segurança sobre aquele medicamento.
 
-This project asks the obvious question nobody has systematically answered: **was the warning already visible in the reports, and how long before?**
+Este projeto faz a pergunta óbvia que ninguém respondeu de forma sistemática: **o alerta já estava visível nos relatos, e com quanta antecedência?**
+
+🔗 **[henriquepmartins.github.io/hindsight](https://henriquepmartins.github.io/hindsight/)**
 
 ---
 
-## What this is
+## O que é
 
-An end-to-end pipeline that ingests the complete FDA Adverse Event Reporting System (FAERS), cleans it into something queryable, runs the disproportionality statistics that drug regulators actually use, and then — the part that matters — **rewinds time**.
+Um pipeline de ponta a ponta que ingere o FAERS completo (o sistema de eventos adversos do FDA), limpa os dados até virarem consultáveis, roda as estatísticas de desproporcionalidade que os reguladores de fato usam e então — a parte que importa — **rebobina o tempo**.
 
-For each real safety warning the FDA has issued, the system recomputes its signals using *only* the reports that existed before that date, and measures how early it would have raised a flag. The misses and the false alarms get published with the same prominence as the hits.
+Para cada alerta de segurança real emitido pelo FDA, o sistema recalcula seus sinais usando *apenas* os relatórios que existiam antes daquela data, e mede com quanta antecedência teria levantado a bandeira. Os erros e os falsos alarmes são publicados com o mesmo destaque dos acertos.
 
-That backtest is the whole point. It is the difference between "I built a thing" and "I built a thing, and here is the evidence it works."
+Esse backtest é o ponto inteiro. É a diferença entre "construí uma coisa" e "construí uma coisa, e aqui está a evidência de que funciona".
 
-> **This is not medical advice, and it makes no causal claims.** Disproportionality analysis measures *reporting patterns*, not causation. A signal means "this combination appears more often than expected in a voluntary reporting database" — nothing more.
+> **Isto não é orientação médica e não faz nenhuma afirmação causal.** Análise de desproporcionalidade mede *padrões de reporte*, não causalidade. Um sinal quer dizer "esta combinação aparece mais do que o esperado numa base de reporte voluntário" — nada além disso.
 
 ---
 
 ## Status
 
-🚧 **Day 0.** Nothing is built yet. What exists is a specification and a completed reconnaissance of the data.
+**M0 quase fechado.** O pipeline roda de ponta a ponta sobre uma partição e publica uma página com um gráfico real. Faltam duas tarefas: `make all` a partir de um clone limpo, e a checagem de deriva contra uma partição de 2005.
 
-| Milestone | What it delivers | Status |
+| Milestone | O que entrega | Status |
 |---|---|---|
-| **M0** Walking skeleton | One partition through every layer → one public chart | ⬜ Not started |
-| **M1** Full corpus | All 20.7M reports, refreshing unattended | ⬜ Planned |
-| **M2** Cleaning & entity resolution | "Tylenol" and "paracetamol" become one drug | ⬜ Planned |
-| **M3** Signal detection | PRR / ROR / Bayesian shrinkage over every drug–event pair | ⬜ Planned |
-| **M4** The Hindsight backtest | Lead-time vs. real FDA warnings | ⬜ Planned |
-| **M5** Public artifacts | Open dataset + report site | ⬜ Planned |
+| **M0** Esqueleto ambulante | Uma partição por todas as camadas → uma página pública | 🟡 T1–T17 feitos, faltam T18–T19 |
+| **M1** Corpus completo | Os 20,7M de relatórios, atualizando sozinho | ⬜ Planejado |
+| **M2** Limpeza e resolução de entidades | "Tylenol" e "paracetamol" viram um medicamento só | ⬜ Planejado |
+| **M3** Detecção de sinal | PRR / ROR / shrinkage bayesiano em cada par | ⬜ Planejado |
+| **M4** O backtest Hindsight | Antecedência contra alertas reais do FDA | ⬜ Planejado |
+| **M5** Artefatos públicos | Dataset aberto + site do relatório | ⬜ Planejado |
 
-Full plan in [`.specs/project/ROADMAP.md`](.specs/project/ROADMAP.md). Decisions and open risks in [`.specs/project/STATE.md`](.specs/project/STATE.md).
+Plano completo em [`.specs/project/ROADMAP.md`](.specs/project/ROADMAP.md). Decisões e riscos abertos em [`.specs/project/STATE.md`](.specs/project/STATE.md).
 
 ---
 
-## What the data actually looks like
+## O que os dados são de verdade
 
-Measured directly on 2026-08-11, not estimated:
+Medido diretamente, não estimado:
 
 | | |
 |---|---|
-| Reports in the archive | **20,692,690** |
-| Bulk export | 1,767 files, **111 GB** compressed |
-| Reports in one file | 12,000 — in **1.2 GB** of JSON |
-| Per report | ~100 KB, ~8.6 drugs |
-| Download throughput | 11.6 MB/s |
+| Relatórios no arquivo | **20.692.690** |
+| Export em massa | 1.767 arquivos, **111 GB** comprimidos |
+| Relatórios num arquivo | 12.000 — em **807 MB** de JSON |
+| Vazão de download | 11,5 MB/s |
 
-That ~100 KB per report is absurd for what is essentially a list of drugs and symptoms — so I measured where it goes.
+Isso dá cerca de 67 KB por relatório, absurdo para o que é essencialmente uma lista de medicamentos e sintomas — então medi para onde vão os bytes.
 
-**92.7% of the entire archive is one lookup block, copied into every drug row.** The `openfda` enrichment field — brand names, NDC codes, pharmacologic classes, UNII identifiers — accounts for 641 MB of a 692 MB payload, repeated across 103,187 drug rows per file.
+**92,7% do arquivo inteiro é um único bloco de lookup, copiado em cada linha de medicamento.** O campo de enriquecimento `openfda` — nomes comerciais, códigos NDC, classes farmacológicas, identificadores UNII — responde por 641 MB de um payload de 692 MB.
 
-So I pulled it out into a dimension table and measured the result on a real partition:
+Puxando ele para uma tabela de dimensão e medindo numa partição real:
 
-| stage | size |
+| etapa | tamanho |
 |---|---|
-| source zip | 246 MB |
-| raw JSON | 1,200 MB |
-| after normalization (NDJSON) | 65.5 MB |
-| **Parquet, ZSTD-9** | **3.55 MB** |
+| zip de origem | 162 MB |
+| JSON cru | 807 MB |
+| **Parquet, ZSTD-9** | **4,62 MB** |
 
-**338× smaller than the JSON, 69× smaller than the compressed source — and provably lossless.**
+**175× menor que o JSON, 35× menor que a origem comprimida — e comprovadamente sem perdas.**
 
-Not "lossless" as an assertion. The spike reconstructs the original nested JSON back out of the normalized tables and compares it to the source record by record: **12,000 of 12,000 byte-identical, zero mismatches.**
+Não "sem perdas" como afirmação. O pipeline reconstrói o JSON aninhado original a partir das tabelas normalizadas e compara com a fonte, relatório por relatório: **12.000 de 12.000 idênticos byte a byte, zero divergências.**
 
-That test earned its keep immediately. It caught an earlier version silently dropping `patient.summary` (present on 49% of reports) and `reportduplicate` — the latter being a field this project's own deduplication step depends on. It then caught a subtler one: an empty `openfda: {}` object being treated as an absent field, erasing the difference between *"we checked and found nothing"* and *"we never looked."* 550 drug entries, across exactly 492 reports. A compression number without a round-trip test is a guess.
+Esse teste se pagou de imediato. Pegou uma versão anterior descartando `patient.summary` (presente em 49% dos relatórios) e `reportduplicate` — este último um campo do qual a própria deduplicação do projeto depende. Depois pegou um mais sutil: um `openfda: {}` vazio tratado como campo ausente, apagando a diferença entre *"verificamos e não achamos nada"* e *"nunca olhamos"*. 550 entradas de medicamento, em exatamente 492 relatórios. Um número de compressão sem teste de round trip é um chute.
 
-**The full 20.7M-report corpus projects to ~3.4 GB**, and peak disk during ingestion is ~1.5 GB, since partitions are streamed and discarded one at a time. The 111 GB is something the pipeline *passes through* — never something it stores.
-
-*(Measured on one 2025 partition; early years will compress differently. Reproduce with [`spike-flatten.py`](.specs/project/spike-flatten.py) — it runs the normalization and the round-trip test together.)*
+**O corpus completo de 20,7M projeta para ~3,4 GB**, e o pico de disco durante a ingestão é ~1,5 GB, já que as partições são transmitidas e descartadas uma por vez. Os 111 GB são algo por onde o pipeline *passa* — nunca algo que ele guarda.
 
 ---
 
-## Architecture
+## O achado do M0
+
+Rodar PRR sobre uma partição produziu um ranking aritmeticamente correto e clinicamente absurdo: micose de unha num adesivo de buprenorfina no topo. As marginais estavam certas — a soma bate em exatamente 12.000.
+
+Seguindo os pares até os documentos: **125 relatórios de 12.000 — 1,04% — sustentam 18.946 dos 28.540 pares. Dois terços da tabela.** Um relatório que nomeia 90 medicamentos afirma um par contra cada evento que carrega, e nove desses relatórios são um paciente só, registrado por seis fabricantes diferentes.
+
+Nenhum limiar resolve. O critério de Evans mantém 85% dos pares e todos os implausíveis passam com folga. Isso transforma "deduplicação é um milestone que decide tudo" de asserção em medição.
+
+---
+
+## Arquitetura
 
 ```
-openFDA S3  ──▶  raw zips (immutable, archived on fetch)
+openFDA S3  ──▶  zip fixado por SHA-256 (cache, não acervo)
                       │
                       ▼
-              stream-parse ──▶ normalize ──▶ Parquet on R2
-                                   │          (partitioned by year/quarter)
+              stream-parse ──▶ normalize ──▶ Parquet particionado
+                                   │          (ano/trimestre/partição)
                                    │
                     ┌──────────────┴──────────────┐
                     ▼                             ▼
-              DuckDB (analytics)           Postgres (small marts)
+              DuckDB (análise)              CSV versionado
                     │                             │
                     ▼                             ▼
-        signal detection · backtest        generated report site
+        detecção de sinal · backtest        site gerado (Quarto)
 ```
 
-**Principles:**
+**Princípios:**
 
-- **Reproducibility by pinning, not by hoarding.** Archiving all 111 GB of raw source is impossible on free tiers, so the pipeline pins the openFDA export date and partition manifest instead, and any partition can be re-fetched byte-identically from an official, stable, public source. The round-trip test is what guarantees the derived corpus matches it.
-- **Never hold 111 GB.** Stream → transform → discard, one partition at a time.
-- **Free tiers force the right design.** No hosted Postgres can hold this, so the corpus is columnar — which is the correct architecture regardless.
-- **Point-in-time or it doesn't count.** The backtest must never see a byte of data that didn't exist on the date being simulated. Preventing leakage is the entire scientific content of the project.
+- **Reprodutibilidade por fixação, não por acúmulo.** Guardar os 111 GB de origem é inviável em plano gratuito, então o pipeline fixa a data do export e o manifesto da partição, e qualquer partição pode ser rebaixada byte a byte de uma fonte pública oficial. O teste de round trip é o que garante que o corpus derivado bate com ela.
+- **Nunca segurar 111 GB.** Stream → transforma → descarta, uma partição por vez.
+- **Plano gratuito força o desenho certo.** Nenhum Postgres hospedado cabe isso, então o corpus é colunar — que é a arquitetura correta de qualquer jeito.
+- **Point-in-time ou não vale.** O backtest nunca pode ver um byte que não existia na data simulada. Impedir vazamento é o conteúdo científico inteiro do projeto.
 
-**Stack:** Python 3.12 · DuckDB · Polars · Parquet on Cloudflare R2 · PostgreSQL · GitHub Actions · Quarto → GitHub Pages
+**Stack:** Python 3.12 · DuckDB · pyarrow · Parquet · matplotlib + seaborn · GitHub Actions · Quarto → GitHub Pages
 
-**Deliberately not used:** no React frontend, no LLM layer, no deep learning. Each was considered and rejected for stated reasons — see AD-004 through AD-006 in [`STATE.md`](.specs/project/STATE.md).
-
----
-
-## The standard this is held to
-
-1. **Reproduce before you discover.** The methods must first recover at least three drug–event associations already established in the literature. A method that can't reproduce known results has no business claiming new ones.
-2. **Publish the misses.** Lead-time results include the warnings the system would have missed entirely, and the false alarms it would have raised.
-3. **Measure the cleaning.** Entity resolution and deduplication ship with accuracy rates on a hand-labeled sample — not "it looks better."
-4. **The system grades itself.** A public page tracks data freshness, row counts, null rates, and every schema-drift event caught.
-5. **Limitations page written first.** Before the results page.
+**Deliberadamente fora:** sem frontend React, sem camada de LLM, sem deep learning. Cada um foi considerado e rejeitado por razões escritas — veja AD-004 a AD-006 no [`STATE.md`](.specs/project/STATE.md).
 
 ---
 
-## Prior art and honest positioning
+## O padrão que este projeto se impõe
 
-Signal detection in FAERS is a real, mature discipline — the FDA, EMA, and Uppsala Monitoring Centre all do it, and the statistical methods used here come from that literature rather than being invented for this project. openFDA already makes the data queryable, and academic studies have analyzed FAERS extensively.
-
-What doesn't exist publicly, as far as I can find: **a reproducible, open, end-to-end pipeline that rebuilds the corpus from raw source and then measures its own historical lead time against real regulatory action.** That gap is what this builds.
-
-If someone has already done this, I want to know — open an issue.
+1. **Reproduza antes de descobrir.** Os métodos precisam primeiro recuperar ao menos três associações medicamento–evento já estabelecidas na literatura. Um método que não reproduz resultados conhecidos não tem por que reivindicar novos.
+2. **Publique os erros.** Os resultados de antecedência incluem os alertas que o sistema teria perdido por completo, e os falsos alarmes que teria levantado.
+3. **Meça a limpeza.** Resolução de entidades e deduplicação saem com taxas de acurácia sobre uma amostra rotulada à mão — não "parece melhor".
+4. **O sistema se avalia.** Uma página pública acompanha atualidade dos dados, contagens, taxas de nulo e cada evento de deriva de schema capturado.
+5. **Página de limitações escrita primeiro.** Antes da página de resultados.
 
 ---
 
-## License
+## Estado da arte e posicionamento honesto
 
-Code: MIT. Derived dataset: CC BY 4.0. Source data is US public domain (openFDA).
+Detecção de sinal no FAERS é uma disciplina real e madura — FDA, EMA e o Uppsala Monitoring Centre fazem isso, e os métodos estatísticos usados aqui vêm dessa literatura em vez de terem sido inventados para este projeto. O openFDA já deixa os dados consultáveis, e estudos acadêmicos analisaram o FAERS extensamente.
+
+O que não existe publicamente, até onde consegui encontrar: **um pipeline aberto, reprodutível e de ponta a ponta que reconstrói o corpus a partir da fonte crua e depois mede sua própria antecedência histórica contra ação regulatória real.** É essa lacuna que isto preenche.
+
+Se alguém já fez isso, quero saber — abra uma issue.
+
+---
+
+## Licença
+
+Código: MIT. Dataset derivado: CC BY 4.0. Dados de origem são domínio público dos EUA (openFDA).
