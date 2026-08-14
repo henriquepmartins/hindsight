@@ -3,14 +3,6 @@ PARTITION ?= 2025q1/0001-of-0028
 .DEFAULT_GOAL := help
 .PHONY: help install ingest test analyze site all clean
 
-define todo
-@echo ""
-@echo "  make $@ — ainda não implementado, entra em $(1)"
-@echo "  veja .specs/features/m0-walking-skeleton/tasks.md"
-@echo ""
-@exit 1
-endef
-
 help: ## Mostra esta lista
 	@echo "Hindsight — M0 esqueleto ambulante"
 	@echo ""
@@ -24,8 +16,8 @@ install: ## Sincroniza o ambiente fixado no uv.lock
 ingest: ## Baixa uma partição e normaliza para Parquet
 	uv run hindsight ingest $(PARTITION)
 
-test: ## Roda o teste de integridade do round trip  [TODO T11]
-	$(call todo,T11)
+test: ## Roda a suíte rápida, round trip sobre o fixture incluído
+	uv run pytest -q
 
 analyze: ## Calcula o PRR sobre as tabelas de contingência
 	uv run hindsight analyze $(PARTITION)

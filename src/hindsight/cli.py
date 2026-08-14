@@ -66,6 +66,7 @@ def _report(summary: dict) -> None:
         print(f"{table:<18} {count:>10,}")
 
     print(f"openfda distintos  {summary['distinct_openfda']:>10,}")
+    print(f"ids repetidos      {summary['repeated_report_ids']:>10,}")
     print(
         f"parquet            {summary['bytes']['parquet'] / 1e6:>10.2f} MB"
         f"   {summary['compression']['vs_json']}x vs json"

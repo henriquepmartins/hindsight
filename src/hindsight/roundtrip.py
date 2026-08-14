@@ -66,7 +66,7 @@ class Tables:
     @classmethod
     def from_rows(cls, rows: dict[str, list[dict]]) -> "Tables":
         return cls(
-            reports={row[REPORT_ID]: row for row in rows[REPORT_TABLE]},
+            reports=_by_id(rows[REPORT_TABLE]),
             drugs=_by_report(rows[DRUG_TABLE]),
             reactions=_by_report(rows[REACTION_TABLE]),
             duplicates=_by_report(rows[DUPLICATE_TABLE]),
@@ -81,6 +81,27 @@ class Tables:
                 for table in TABLES
             }
         )
+
+
+def _by_id(rows: list[dict]) -> dict[str, dict]:
+    reports: dict[str, dict] = {}
+
+    for row in rows:
+        report_id = row[REPORT_ID]
+
+        if report_id in reports:
+            raise BrokenTables(
+                f"{REPORT_ID} {report_id!r} aparece em duas linhas de "
+                f"{REPORT_TABLE}. As linhas de medicamento e reação das duas "
+                f"chegam misturadas numa lista só, entao não da para dizer qual "
+                f"array pertence a qual relatório — e uma reconstrução que "
+                f"chuta isso passaria no teste sem ser o inverso da escrita. "
+                f"metrics.json conta esses ids em repeated_report_ids."
+            )
+
+        reports[report_id] = row
+
+    return reports
 
 
 def _by_report(rows: list[dict]) -> dict[str, list[dict]]:

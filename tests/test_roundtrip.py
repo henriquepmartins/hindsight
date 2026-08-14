@@ -330,3 +330,19 @@ def test_the_whole_partition_rebuilds_from_parquet():
 
     assert mismatched == 0, f"{mismatched:,} of {compared:,} differ. First: {first_failure}"
     assert compared == 12000
+
+
+def test_a_repeated_report_id_refuses_to_load_rather_than_collapse():
+    row = {"safetyreportid": "1"}
+    rows = {table: [] for table in TABLES}
+    rows["report"] = [row, dict(row)]
+
+    with pytest.raises(BrokenTables, match="safetyreportid"):
+        Tables.from_rows(rows)
+
+
+def test_distinct_report_ids_still_load():
+    rows = {table: [] for table in TABLES}
+    rows["report"] = [{"safetyreportid": "1"}, {"safetyreportid": "2"}]
+
+    assert Tables.from_rows(rows).report_ids == ["1", "2"]
