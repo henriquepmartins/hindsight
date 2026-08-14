@@ -884,12 +884,13 @@ A suíte era 191 testes antes; os 11 novos cobrem a contagem de repetidos, a rec
 - This is also where **AD-017's era definition** gets prototyped by hand: the field-level diff is what says whether 2004–2005 is one era with 2025 or a different one.
 
 **Done when:**
-- [ ] An early-era partition (2004q1 onward) ingests without crashing
-- [ ] Its compression ratio is measured and compared to **175×** (T9), not to the superseded 338×
-- [ ] The schema diff against 2025 is recorded as a field-level list, and read as evidence for where an era boundary falls (AD-017)
-- [ ] A new Lesson **L-013** is written into STATE.md with real numbers
-- [ ] `repeated_report_ids` is recorded for that partition too — the 0-of-12,000 in 2025 is one export's property, not the corpus's (AD-020)
-- [ ] If the ratio is dramatically worse, the full-corpus projection is revised **before** M1 starts
+- [x] An early-era partition (2004q1 onward) ingests without crashing — `2004q1/0001-of-0005`, 9.8 s, peak RSS 211 MB
+- [x] Its compression ratio is measured and compared to **175×** (T9) — **78.8×**, and the partition is nonetheless **smaller** (2.78 MB vs 4.62 MB)
+- [x] The schema diff against 2025 is recorded as a field-level list, and read as evidence for where an era boundary falls (AD-017) — `report` 24↔31, `report_drug` 16↔29; not the same era by any reading
+- [x] A new Lesson **L-013** is written into STATE.md with real numbers
+- [x] `repeated_report_ids` is recorded for that partition too — **6 of 12,000**, and the guard fired on its first real exposure (AD-020)
+- [x] If the ratio is dramatically worse, the full-corpus projection is revised **before** M1 starts — revised **down**: 1.7–3.6 GB of facts
+- [ ] **B-004 opened, not fixed.** The round trip cannot run on this partition, and giving `report` a surrogate key is a design decision this task does not contain
 
 **Verify:**
 ```bash
