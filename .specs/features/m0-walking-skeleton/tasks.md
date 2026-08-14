@@ -574,9 +574,16 @@ AssertionError: the fixture's `openfda: {}` never reached dim_openfda. If
 **Concept:** *Domain judgment as a versioned artifact.* This list changes results, so it belongs in git with a reason per row and not inline in a query. Someone will disagree with a term someday; a CSV makes that a pull request instead of an argument.
 
 **Done when:**
-- [ ] CSV with `term,reason` and the three terms from L-004
-- [ ] Every row's reason says why it's an artifact, not just "noise"
-- [ ] A header comment states the list is provisional and reviewed each milestone
+- [x] CSV with `term,reason` and the three terms from L-004
+- [x] Every row's reason says why it's an artifact, not just "noise"
+- [x] A header comment states the list is provisional and reviewed each milestone
+
+**Deviations from the original criteria, and why:**
+- **187 terms, not the three seeds.** The three from L-004 are a floor, and the header says so: the list is provisional, reviewed at the start of every milestone, and expected to grow. Measured bite: **6,900 of 44,916 reaction rows — 15.4%** of the partition.
+- **The header states the membership rule, not just the disclaimer.** A term is excluded only if it records something other than a bodily response in the patient — how the product was used, supplied or labelled, whether it worked, that an exposure happened, or that nothing did. **Ambiguity keeps the term**, because a term wrongly excluded is invisible and a term wrongly kept shows up at the top of the PRR table where it can be argued with.
+- **Procedure and concomitant-therapy terms are deferred in the header rather than left out quietly.** `Chemotherapy`, `Radiotherapy`, `Oxygen therapy` sit in the reaction field and are not bodily responses either, but enumerating them by hand loses — they need the MedDRA hierarchy, and openFDA ships the preferred term only.
+- **The header is prose behind `#`, which makes the list's own failure mode silent.** DuckDB returns zero rows without `comment='#'` and raises nothing. Recorded here as T13's to make loud, and it did — see `excluded_terms` below.
+- **Checked by ranking with and without it.** `Off label use` and `Product use in unapproved indication` leave the top; infliximab → sepsis and streptococcal infection surface underneath, which is a real anti-TNF boxed warning. That check is also what found L-009.
 
 **Verify:** open it and read the reasons. If a reason doesn't convince you, it won't convince a reader.
 
@@ -593,17 +600,50 @@ AssertionError: the fixture's `openfda: {}` never reached dim_openfda. If
 **Concept:** *Disproportionality analysis* — the actual statistics regulators use, and the piece of domain knowledge that makes this a pharmacovigilance project rather than a JSON-flattening exercise. PRR = (a/(a+b)) / (c/(c+d)) over the 2×2 of drug-present/absent × event-present/absent. Expressing that in SQL means computing four marginals from one table, which is a genuinely good window-function exercise.
 
 **Done when:**
-- [ ] Returns drug, event, a, b, c, d, PRR — **raw counts alongside the ratio, always**
-- [ ] Excluded terms are gone from the output
-- [ ] Pairs with a < 3 are filtered, threshold as a named parameter
-- [ ] Runs in under 5 s (STATE.md measured 0.048 s for the join+group-by, so this has room)
-- [ ] Top results are sanity-checked by eye — an implausible #1 usually means the marginals are wrong
+- [x] Returns drug, event, a, b, c, d, PRR — **raw counts alongside the ratio, always**
+- [x] Excluded terms are gone from the output
+- [x] Pairs with a < 3 are filtered, threshold as a named parameter
+- [x] Runs in under 5 s — **0.13 s** over the whole partition
+- [x] Top results are sanity-checked by eye — **and the check failed. That failure is M0's finding (L-010).**
+
+**Deviations from the original criteria, and why:**
+
+- **⚠️ The eye-check failed, and the marginals were right.** The criterion says an implausible #1 usually means the marginals are wrong. The #1 is `DESOGESTREL\ETHINYL ESTRADIOL × X-ray abnormal` at PRR 9,596, then nail fungus on a buprenorphine patch, an injectable gold salt and a C1-esterase inhibitor. `BUTRANS × Onychomycosis` recomputed by hand gives a=9, b=9, c=1, d=11,981 — summing to exactly 12,000, and the module agrees to the digit. The query is right and the answer is nonsense, which is the harder version of this failure. It traces to **nine near-duplicate reports of one Canadian patient on 66–96 drugs, filed by six manufacturers** (L-010). Neither `drugcharacterization` nor the screening criterion removes it — both measured before either was believed. **M2 is the fix, and T14 publishes the cluster rather than the ranking.**
+- **The cells count distinct reports, not joined rows.** design.md sketches `report_drug JOIN report_reaction USING (safetyreportid)` and labels itself "shape only". That shape ranks verbose reporters: one report carries 2,321 drug rows, and the naive join inflates the partition 2.2× — 882,585 rows against 405,230 distinct triples, 2.1% of it from that one report (L-009). `SELECT DISTINCT` on both sides is the whole reason this file is not two lines.
+- **χ² and the Evans criterion ship with the ratio (AD-014).** More than the task lists. PRR alone is not a screening rule anywhere in the literature, and shipping the ratio without the criterion it is always quoted with invites a reader to treat a high ratio as a finding. Yates' correction, floored at zero. Not shrinkage — no prior, no borrowing across pairs — so AD-006 and M3's scope are untouched. **It is shipped with the measurement that it does not work here:** 24,299 of 28,540 pairs pass, 85%, and every implausible pair at the top clears it comfortably.
+- **An empty exclusion list raises.** STATE parked this as T13's to own, and it is the one failure in this file that is invisible downstream: without `comment='#'` DuckDB returns zero rows and no error, the query still runs, still returns a full table, and the only symptom is `Off label use` back at the top of a chart nobody re-reads. Two tests pin it, one of them reading the real CSV without the flag.
+- **A pair with an undefined PRR sorts last rather than being dropped.** 91 of 28,540 have c = 0 — every report carrying the event also carries the drug. The counts still describe them, and `signal` is `False` rather than `True`: Evans has nothing to say about a zero denominator, and treating it as a pass would put the least-evidenced pairs at the top of a flagged list.
+- **Reports whose only reaction was excluded keep their place in `d`.** They are real reports that happened not to record a codeable event. Dropping them would quietly shrink the population the ratio is taken against — pinned by `test_an_excluded_event_still_leaves_its_report_in_the_corpus`.
+- **The partition is discovered from disk, not spelled into the source.** A hardcoded id here is L-006's stale pin waiting to happen. Two ingested partitions is an error rather than a choice, because after T19 the second one is a 2005-era file and averaging two eras into one table answers a question nobody asked.
+- **A CLI subcommand and a live `make analyze`,** because the Makefile target was a stub pointing at this task. The banner under the table prints the caveats — partition size, threshold, no entity resolution, no dedup, not causation — rather than leaving them to the reader.
+- Covered by `tests/test_prr.py` — **24 cases, no network, no partition, 0.51 s.** PRR and χ² are each checked against arithmetic worked independently of the SQL, and `test_the_cells_partition_the_corpus` asserts a+b+c+d equals the report count, which is what caught the join inflation.
 
 **Verify:**
-```bash
-uv run python -c "from hindsight.analysis.prr import top_pairs; print(top_pairs(limit=20))"
 ```
-Expected: no `Off label use`, every row with counts, PRR descending.
+$ uv run pytest tests/test_prr.py -q
+24 passed in 0.51s
+
+$ uv run hindsight analyze --limit 10
+drug                           event                       a     b    c       d       PRR      chi2  signal
+DESOGESTREL\ETHINYL ESTRADIOL  X-ray abnormal              4     1    1  11,994   9,596.0   5,877.9  yes
+DESOGESTREL\ETHINYL ESTRADIOL  General symptom             3     2    1  11,994   7,197.0   3,747.8  yes
+DESOGESTREL\ETHINYL ESTRADIOL  Pustular psoriasis          3     2    1  11,994   7,197.0   3,747.8  yes
+MYOCHRYSINE                    Onychomadesis               8     6    1  11,985   6,849.1   5,352.4  yes
+BUTRANS                        Onychomycosis               9     9    1  11,981   5,991.0   4,810.9  yes
+GOLD SODIUM THIOMALATE         Onychomycosis               9     9    1  11,981   5,991.0   4,810.9  yes
+BERINERT                       Onychomycosis               9    11    1  11,979   5,391.0   4,328.8  yes
+BUTRANS                        Onychomadesis               8    10    1  11,981   5,325.3   4,161.0  yes
+NADOLOL                        Proctitis                   3     4    1  11,992   5,139.9   2,676.0  yes
+NADOLOL                        Vaginal flatulence          3     4    1  11,992   5,139.9   2,676.0  yes
+
+12,000 reports · min 3 co-reports · signal = Evans (PRR>=2, chi2>=4, a>=3) · raw
+medicinalproduct strings, no entity resolution and no deduplication (M2) ·
+disproportionate reporting is not causation
+
+0.195 total
+```
+
+No excluded term appears, every row carries its 2×2, PRR descends, and the whole partition takes 0.13 s of query time against a 5 s budget. **Every one of those ten rows is the duplicate cluster.** That is the acceptance criterion doing its job — it asked for the table to be read by eye, and reading it is what turned M0's deliverable from a ranking into a finding.
 
 **Commit:** `feat(analysis): PRR over drug-event contingency tables`
 

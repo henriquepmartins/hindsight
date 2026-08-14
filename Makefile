@@ -36,8 +36,8 @@ ingest: ## Fetch a partition and normalize it to Parquet
 test: ## Run the round-trip integrity test  [TODO T11]
 	$(call todo,T11)
 
-analyze: ## Compute PRR over the drug-event contingency tables  [TODO T13]
-	$(call todo,T13)
+analyze: ## Compute PRR over the drug-event contingency tables
+	uv run hindsight analyze $(PARTITION)
 
 site: ## Render the Quarto site to _site/  [TODO T15]
 	$(call todo,T15)
