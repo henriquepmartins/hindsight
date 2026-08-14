@@ -1,0 +1,103 @@
+---
+title: "One partition, end to end"
+subtitle: "M0 — walking skeleton"
+format:
+  html:
+    toc: false
+    fig-align: center
+    code-fold: false
+---
+
+The FDA's adverse event database holds 20.7 million spontaneous reports, and
+regulators screen them with disproportionality statistics. This milestone pushes
+a single partition — 12,000 reports — through every layer of the pipeline, to
+find out what breaks first.
+
+## 12,000 reports rebuilt byte for byte
+
+The partition arrives as 807 MB of JSON and leaves as 4.6 MB of Parquet, 175×
+smaller, with every field kept. That nothing was lost is not an assertion: the
+tables are read back, the nested source document is reconstructed from them, and
+all 12,000 come back byte-identical.
+
+The test that proves it was itself checked. An earlier version stripped nulls
+from both documents before comparing, which would have hidden any real
+difference behind a passing count. The source carries zero explicit nulls —
+measured, every value at every depth — so the comparison is one-sided and means
+what it says.
+
+## The ranking is arithmetically right and clinically absurd
+
+PRR over a 2×2 of distinct reports, artifact terms excluded, three co-reports
+minimum. The first row is nail fungus on a buprenorphine patch. Recomputed by
+hand: a = 9, b = 9, c = 1, d = 11,981, summing to exactly 12,000. The query is
+correct and the answer is nonsense.
+
+The screening criterion does not rescue it. Evans keeps 85% of pairs, and every
+implausible one clears it comfortably — χ² is *large* precisely because the
+expected count is 0.015. No threshold separates a duplicate from a signal.
+
+**Limitations.** One partition. No entity resolution, so `INFLIXIMAB` and
+`REMICADE` are different drugs. No deduplication. Three co-reports minimum.
+Disproportionate reporting is not causation.
+
+## 1% of the reports manufacture two thirds of the pairs
+
+A report naming 90 drugs and 10 events asserts 900 drug–event pairs. This
+partition's median report names two, and its 99th percentile names 27. The 125
+reports above that line supply the evidence for 18,946 of the 28,540 pairs.
+
+```{python}
+#| label: fig-crowding
+#| fig-cap: "Every drug–event pair reaching three co-reports, against how many drugs the reports behind it name. The ratio climbs with the width of the document."
+#| echo: true
+
+import matplotlib.pyplot as plt
+import pandas
+import seaborn
+
+
+seaborn.set_theme(style="darkgrid")
+
+pairs = pandas.read_csv("data/prr_top.csv", comment="#")
+
+ordinary = pairs[pairs.crowded == 0]
+crowded = pairs[pairs.crowded == 1]
+
+
+figure, axes = plt.subplots(figsize=(7.5, 4.8))
+
+axes.scatter(ordinary.crowding, ordinary.prr, s=7, alpha=0.25, linewidths=0, color="#0072B2")
+axes.scatter(crowded.crowding, crowded.prr, s=7, alpha=0.25, linewidths=0, color="#D55E00")
+
+axes.axvline(27, color="#3C3C3C", linewidth=1.1, linestyle=(0, (5, 4)))
+
+
+axes.text(24, 2.2e4, "99th percentile", color="#3C3C3C", fontsize=9, ha="right")
+
+axes.text(3.2, 3.5e3, f"{len(ordinary):,} pairs\nfrom ordinary reports",
+          color="#0072B2", fontsize=10.5)
+
+axes.text(30, 0.22, f"{len(crowded):,} pairs\nfrom 125 reports",
+          color="#D55E00", fontsize=10.5)
+
+
+axes.set_xscale("log")
+axes.set_yscale("log")
+axes.set_xlim(0.9, 130)
+axes.set_ylim(0.08, 4e4)
+axes.set_xlabel("distinct drugs named by the reports behind the pair")
+axes.set_ylabel("proportional reporting ratio")
+
+plt.show()
+```
+
+Nine of those 125 are one case. All Canadian, all serious, filed within three
+months by six different manufacturers, drug lists overlapping at a Jaccard
+median of 0.48 — and two of them share a company number and an identical
+ten-term reaction list.
+
+Remove the crowded pairs and the top of the table changes character: risperidone
+and gynaecomastia, a documented prolactin effect. One pair is not a finding. It
+is the first sign that the method works once the input is clean, and cleaning
+the input is the next milestone.

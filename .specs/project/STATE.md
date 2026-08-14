@@ -1,7 +1,7 @@
 # State
 
 **Last Updated:** 2026-08-13
-**Current Work:** M0 — Walking Skeleton. T1–T12 done: repo initialized, dependencies pinned, Makefile skeleton, partition resolver, pinned resumable downloader, streaming report iterator, openfda dimension writer, record splitter, schema inference + Parquet sink, round-trip reconstructor, round-trip test, MedDRA exclusion list. **AD-013 is decided** — five tables, and a null `seq` on `report_duplicate` means the source carried a bare object. **The round trip closes and is now defended: 12,000 / 12,000 byte-identical, plus 13 tests over a committed 100-report fixture that CI can run without the partition.** Phase 3, the core of M0, is finished, and T12 curated 187 exclusion terms that clear the top of the ranking — what surfaces underneath is infliximab → sepsis, a real anti-TNF warning. **T12 also found the trap T13 walks into: one report carries 2,321 drug rows, and the naive join inflates the pair counts 2.2× (L-009).** T13 is written: PRR and χ² over a 2×2 of **distinct reports**, Evans as the screening criterion (AD-014), 0.13 s over the partition. **Its eye-check failed, and the failure is the milestone's finding — the top of the table is nine near-duplicate reports of one Canadian patient on ~90 drugs, and neither `drugcharacterization` nor Evans removes it (L-010).** T13 is committed. Next action: **T14**, reshaped by **AD-015 and AD-016** — three numbered notebooks recording the analyses that actually ran, plus one ~350-word report at `reports/m0.qmd` that publishes the duplicate cluster as M0's result rather than the ranking.
+**Current Work:** M0 — Walking Skeleton. T1–T12 done: repo initialized, dependencies pinned, Makefile skeleton, partition resolver, pinned resumable downloader, streaming report iterator, openfda dimension writer, record splitter, schema inference + Parquet sink, round-trip reconstructor, round-trip test, MedDRA exclusion list. **AD-013 is decided** — five tables, and a null `seq` on `report_duplicate` means the source carried a bare object. **The round trip closes and is now defended: 12,000 / 12,000 byte-identical, plus 13 tests over a committed 100-report fixture that CI can run without the partition.** Phase 3, the core of M0, is finished, and T12 curated 187 exclusion terms that clear the top of the ranking — what surfaces underneath is infliximab → sepsis, a real anti-TNF warning. **T12 also found the trap T13 walks into: one report carries 2,321 drug rows, and the naive join inflates the pair counts 2.2× (L-009).** T13 is written: PRR and χ² over a 2×2 of **distinct reports**, Evans as the screening criterion (AD-014), 0.13 s over the partition. **Its eye-check failed, and the failure is the milestone's finding — the top of the table is nine near-duplicate reports of one Canadian patient on ~90 drugs, and neither `drugcharacterization` nor Evans removes it (L-010).** T13 is committed. **T14 is done and it enlarged the finding (L-011): the nine duplicate reports are not a cluster to route around — 125 reports of 12,000, 1.04%, supply 66.4% of the whole pair table.** Three notebooks record the analyses that actually ran, `reports/m0.qmd` publishes that in 370 words and one chart, and `hindsight analyze --csv` writes the committed table the page reads. Next action: **T15** (Quarto site, light theme, per-milestone navigation).
 
 ---
 
@@ -307,7 +307,7 @@ Over the partition the naive join produces **882,585 rows against 405,230 distin
 
 **Problem:** the marginals were not wrong. Recomputing `BUTRANS × Onychomycosis` by hand gives a=9, b=9, c=1, d=11,981, summing to exactly 12,000, and the module agrees to the digit. The query is right and the answer is still nonsense, which is the harder version of this failure.
 
-**Solution:** followed the pairs back to the reports. Nine reports carry `Onychomycosis`, and each of them lists **66–96 distinct drugs**. All nine are Canadian, all `serious=1`, eight of the nine record a patient age of 40, and they were received between January and March 2025. They were filed by **six different manufacturers** — Purdue, JNJ, Sandoz, Biocon, BEH. Two share the identical `companynumb` `CA-SANDOZ-SDZ2024CA107730` **and an identical ten-term reaction list**: the same case, filed twice. Across all nine, 19 drugs are common to every report and the pairwise drug-list Jaccard runs 0.38 / 0.48 median / 0.91. They carry 41 `report_duplicate` entries between them.
+**Solution:** followed the pairs back to the reports. **Ten** reports carry `Onychomycosis` — this lesson first said nine, and its own 2×2 already contradicted it, since a = 9 plus c = 1 is ten reports carrying the event. The tenth names three drugs and is an ordinary report; the **nine** that make the cluster each list **66–96 distinct drugs**. All nine are Canadian, all `serious=1`, eight of the nine record a patient age of 40, and they were received between January and March 2025. They were filed by **six different manufacturers** — Purdue, JNJ, Sandoz, Biocon, BEH. Two share the identical `companynumb` `CA-SANDOZ-SDZ2024CA107730` **and an identical ten-term reaction list**: the same case, filed twice. Across all nine, 19 drugs are common to every report and the pairwise drug-list Jaccard runs 0.38 / 0.48 median / 0.91. They carry 41 `report_duplicate` entries between them.
 
 So it is one patient — or a very small number — on a long medication list, reported independently by every manufacturer whose product was on that list. Every drug in the list gets a=9 against every event in it. That is the entire top of the table.
 
@@ -317,6 +317,22 @@ So it is one patient — or a very small number — on a long medication list, r
 - **Apply the screening criterion.** Evans (AD-014) keeps **24,299 of 28,540 pairs — 85%** — and every pair named above clears it comfortably. χ² is *large* precisely because the expected count is 0.015, so PRR and χ² agree enthusiastically about the same bad input. A threshold cannot tell a duplicate from a signal; both statistics are functions of a, and a is what is wrong.
 
 **Prevents:** publishing a signal table as a finding. It also converts AD-001's claim — that entity resolution and deduplication are load-bearing milestones rather than chores — from an assertion into a measurement, which is what M0 is for. At 1,767 partitions this is not one bad cluster to route around: 40 reports per 12,000 carry more than 100 drug rows (L-009), roughly 69,000 across the corpus, and each one manufactures pairs across its whole medication list. **M2 is the fix, and until M2 exists every number in this table is provisional in the strong sense — not "approximate", but "attributable to the wrong drug".**
+
+### L-011: 1% of the reports manufacture two thirds of the pair table
+
+**Context:** T13 found nine near-duplicate reports at the top of the ranking (L-010) and left them looking like a bad cluster to route around. T14 had to decide what the M0 page publishes, which meant answering a question T13 never asked: how much of the table is like that?
+
+**Problem:** "the top ten rows are contaminated" is an anecdote. A page built on it invites the reader to assume rows eleven onward are fine.
+
+**Solution:** measured the whole table against a rule rather than against those nine ids. A report's *breadth* is how many distinct drugs it names; a pair's **crowding** is the median breadth of the reports behind its `a`. Both are computed from the data, and the cut is the partition's own 99th percentile rather than a constant — a number written into the source would be measured on one partition of one export and then applied to a corpus spanning 2004–2025, which is the mistake L-006 is about.
+
+The distribution has the gap that makes the cut usable: **median report names 2 distinct drugs, the 99th percentile names 27, the widest names 121.** The L-010 cluster names 66–96, so nothing sits on the line arguing about which side it belongs on.
+
+Then the number that changed the milestone's deliverable: **125 reports of 12,000 — 1.04% — supply the evidence for 18,946 of the 28,540 pairs. 66.4%.** Evans flags 24,299 pairs and 18,055 of those are crowded. Of the top 100 by PRR, 85 are.
+
+**Solution, the second half.** Removing the crowded pairs is not a fix, and the module says so rather than implying otherwise: a patient on 90 drugs who has an adverse reaction is a real patient, and separating that from a repeated case needs entity resolution, which is M2. But the ranking underneath is worth looking at — the highest-PRR pairs from ordinary reports include **risperidone → gynaecomastia**, a documented prolactin effect. One pair is not a finding. It is the first evidence that the method works once the input is clean.
+
+**Prevents:** publishing a ranking as a result, and the weaker version of the same error — publishing "the top is contaminated" without saying how far down the contamination goes. It also converts AD-001's claim that deduplication is load-bearing from a measurement about nine reports into one about two thirds of the table.
 
 ### L-002: Always measure before believing a size number
 
@@ -397,6 +413,16 @@ So it is one patient — or a very small number — on a long medication list, r
 | The nine duplicate reports | 66–96 drugs each, **all marked suspect**, 6 manufacturers, 2 sharing a `companynumb` and a reaction list | T13, source zip and Parquet (L-010) |
 | Their pairwise drug-list overlap | Jaccard **0.38 min · 0.48 median · 0.91 max**, 19 drugs common to all nine | T13, same run |
 | PRR wall time, whole partition | **0.13 s** against a 5 s budget | T13, spec Verify block |
+| Distinct drugs per report | median **2** · 99th percentile **27** · widest **121** | T14, `crowding.breadth` over 12,000 |
+| Reports at or above 27 distinct drugs | **125 of 12,000 — 1.04%** | T14, `crowding.wide_reports` |
+| **Pairs those 125 reports supply** | **18,946 of 28,540 — 66.4%** | T14, `crowded` column of the exported CSV (L-011) |
+| Crowded pairs that Evans flags | **18,055** of the 24,299 flagged | T14, same file |
+| Top 100 by PRR that are crowded | **85** · top 500: **432** | T14, same file |
+| Reports carrying `Onychomycosis` | **10**, not the nine L-010 said — the tenth names 3 drugs | T14, corrected against the 2×2's own a + c |
+| Cluster drug-list overlap, recomputed | Jaccard **0.376 / 0.481 / 0.908** — reproduces L-010 to three digits | T14, `crowding.overlap`, written after the figure was recorded |
+| Highest-PRR pair from ordinary reports | `RISPERDAL × Gynaecomastia` — a=5 b=16 c=1, PRR 2,852 | T14, same file |
+| Exported CSV | 28,540 rows, 2.58 MB on disk, **773 KB stored** in git | T14, `git cat-file -s` then the loose object |
+| M0 report prose | **370 words** against AD-016's ≤400 budget | T14, word count over `reports/m0.qmd` |
 
 > ⚠️ Caveat, hardened by **L-006**: per-partition figures come from one partition, `2025q1/drug-event-0001-of-0034` — **which no longer exists.** The 2026-08-10 export chunks 2025q1 into 28 files, not 34. These figures are prior expectations, not reproducible measurements. **T6 through T9 have since re-measured every one of them** against `2025q1/0001-of-0028`: reports 12,000 (matches), drug rows 71,990 and reaction rows 44,916 (both lower), compression 175× rather than 338×. Where the two disagree, the T6–T9 row is the measurement and the spike row is history. The corpus-level rows above (1,767 partitions, 111 GiB, 20,692,690 records) were re-verified against the manifest on 2026-08-13 and hold exactly.
 

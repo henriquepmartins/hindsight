@@ -19,6 +19,7 @@ import sys
 from pathlib import Path
 
 from hindsight import metrics, schema
+from hindsight.analysis.export import write_csv
 from hindsight.analysis.prr import (
     DEFAULT_LIMIT,
     DEFAULT_MIN_COUNT,
@@ -170,8 +171,23 @@ def _pairs(pairs: list[Pair], *, min_count: int) -> None:
 
 
 def _analyze(
-    partition_id: str | None, *, limit: int, min_count: int, signals_only: bool
+    partition_id: str | None,
+    *,
+    limit: int,
+    min_count: int,
+    signals_only: bool,
+    to_csv: bool,
 ) -> None:
+    if to_csv:
+        written = write_csv(min_count=min_count, partition=partition_id)
+
+        print(
+            f"{written.path}  {written.pairs:,} pairs · {written.crowded:,} crowded "
+            f"(>= {written.cut:g} distinct drugs) · {written.partition}"
+        )
+
+        return
+
     _pairs(
         top_pairs(
             limit=limit,
@@ -218,6 +234,13 @@ def main(argv: list[str] | None = None) -> int:
         "clean it — the top of this partition clears the criterion and is "
         "still duplicates",
     )
+    analyze.add_argument(
+        "--csv",
+        action="store_true",
+        dest="to_csv",
+        help="Write every pair to reports/data/prr_top.csv — the file the "
+        "published page reads, since data/parquet/ is gitignored",
+    )
 
     args = parser.parse_args(argv)
 
@@ -233,6 +256,7 @@ def main(argv: list[str] | None = None) -> int:
                 limit=args.limit,
                 min_count=args.min_count,
                 signals_only=args.signals_only,
+                to_csv=args.to_csv,
             )
         else:
             _ingest(args.partition_id, reinfer=args.reinfer)

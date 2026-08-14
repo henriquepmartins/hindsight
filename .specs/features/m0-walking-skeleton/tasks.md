@@ -660,16 +660,30 @@ No excluded term appears, every row carries its 2×2, PRR descends, and the whol
 **Why three notebooks and not four.** M0's exploration did not happen in notebooks. It happened in T4–T13, in modules with tests, and the findings are L-005 through L-010. Numbering notebooks to match a narrative arc would mean inventing the ones that did not occur — the shape of an exploration workflow without the content. Three analyses genuinely ran, at the CLI and the REPL rather than in a notebook, and reproducing those three is a record rather than a reconstruction.
 
 **Done when:**
-- [ ] `pyproject.toml` gains a `viz` group (matplotlib, seaborn, jupyter, ipykernel). `uv sync` without it still runs the whole test suite
-- [ ] `hindsight analyze --csv` writes `reports/data/prr_top.csv`, whose header carries the partition id, the `export_date` and the `min_count` that produced it
-- [ ] Cluster identification is a tested module under `src/hindsight/analysis/`, not inline notebook code
-- [ ] Three notebooks, restart-and-run-all clean, outputs committed, readable on GitHub without running anything
-- [ ] `reports/m0.qmd` renders from the committed CSV alone — no `data/parquet/`, no network, no absolute paths
-- [ ] The report is **≤ 400 words of prose**, budgeted 40 problem+objective · 90 data · 100 analysis · 120 result
-- [ ] Every heading asserts something. No heading is a template label
-- [ ] Limitations close the analysis section, immediately before the result: one partition · no entity resolution · no deduplication · no causal claim · min count 3
-- [ ] One chart: pairs as points, x = `a`, y = PRR on a log scale, the duplicate cluster in the accent. Axes labelled, counts legible
-- [ ] The palette is Okabe-Ito and the chart survives greyscale — the accent differs by opacity and marker size, not by hue alone
+- [x] `pyproject.toml` gains a `viz` group (matplotlib, seaborn, jupyter). `uv sync` without it still runs the whole test suite
+- [x] `hindsight analyze --csv` writes `reports/data/prr_top.csv`, whose header carries the partition id, the `export_date` and the `min_count` that produced it
+- [x] Cluster identification is a tested module under `src/hindsight/analysis/`, not inline notebook code
+- [x] Three notebooks, restart-and-run-all clean, outputs committed, readable on GitHub without running anything
+- [x] `reports/m0.qmd` renders from the committed CSV alone — no `data/parquet/`, no network, no absolute paths
+- [x] The report is **≤ 400 words of prose** — 370
+- [x] Every heading asserts something. No heading is a template label
+- [x] Limitations close the analysis section, immediately before the result
+- [x] One chart, axes labelled, counts legible
+- [x] The palette is Okabe-Ito and the chart survives greyscale
+
+**Deviations from the original criteria, and why:**
+
+- **⚠️ The chart is not the one the criteria describe, because the finding grew (L-011).** The spec asked for x = `a`, y = PRR with the duplicate cluster in the accent. Drawn, and it failed on its own terms: **66% of the pairs are crowded**, so the accent was the majority of the ink and stopped being an accent — a solid orange mass with no structure, on a linear x-axis whose right three quarters were empty. The published chart plots **crowding against PRR on log–log**, with the 99th percentile as a dashed rule. It shows the *mechanism* — the ratio climbing with the width of the document — instead of labelling the outcome, and colour becomes redundant with position, which is what makes it survive greyscale.
+- **The cluster is found by a rule, not by its ids.** `crowding.py` measures how many distinct drugs a report names and cuts at the partition's own 99th percentile. Hardcoding the nine `safetyreportid`s would have reproduced L-010 exactly and generalised to nothing — and would be the stale pin of L-006 in a new costume.
+- **`crowding` is a column on `Pair`, computed in the same query.** One extra CTE and one column, rather than a second pass per pair.
+- **The rule is documented as *not* a deduplication rule.** It flags every pair supported by long medication lists, and some of those are real — a patient on 90 drugs who has an adverse reaction is a real patient. The flag says the evidence cannot tell the two apart. Saying so in the module is the difference between a measurement and a filter someone will later mistake for one.
+- **`overlap` was checked against a number recorded before it existed.** L-010 wrote Jaccard 0.38 / 0.48 / 0.91 for the nine reports from a throwaway query in T13. The module reproduces 0.376 / 0.481 / 0.908 — the same digits, so it is reading the data and not reproducing its own assumption.
+- **It also found an error in L-010.** That lesson says nine reports carry `Onychomycosis`. **Ten do** — the tenth names three drugs and is ordinary — and the lesson's own 2×2 already said so, since a = 9 plus c = 1 is ten. Corrected in STATE rather than quietly left, because a lesson that contradicts its own numbers is worse than no lesson.
+- **The CSV quotes every field, and the write reads itself back.** FAERS product names carry backslashes (`DESOGESTREL\ETHINYL ESTRADIOL`), and DuckDB 1.5.5's CSV sniffer is **intermittent** on the minimally-quoted file — identical bytes at the same path raise on one run and return 28,540 rows on the next. Quoting removes the ambiguity; a read-back check after writing turns a malformed file into a failure here rather than in a render workflow on a machine with no partition. Measured, so nobody re-debugs it: Python's `csv` parses it as 28,541 rows of exactly 11 columns, pandas reads it deterministically, and pandas is what the page uses.
+- **`root` and `exclusions` accept a string.** The callers passing strings are notebooks, and a notebook that imports `pathlib` to name a directory has a line of ceremony in it. The missing-exclusions message now names the resolved cwd, because the failure a notebook hits is "the default is relative to the repo root and you are one level down".
+- **2.58 MB of CSV enters the repo.** Larger than the "a few KB" T17's note assumed, because the chart is a cloud and a cloud drawn from its own top 20 is a dot. Every pair reaching three co-reports goes in.
+- **`ipykernel` is not listed separately** — `jupyter` pulls it. Four packages in the group, not five.
+- Covered by `tests/test_crowding.py` (14 cases) and `tests/test_export.py` (10). **Whole suite: 191, no network, no partition.**
 
 **Verify:**
 ```bash

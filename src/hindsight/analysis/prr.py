@@ -104,6 +104,13 @@ class Pair:
     The counts are not diagnostics. A ratio without them cannot be read: PRR 40
     off a = 3 and PRR 40 off a = 300 are the same number and not remotely the
     same finding, and the first is the one that disappears under M3's shrinkage.
+
+    `crowding` is the median number of distinct drugs named by the reports
+    behind `a`. The partition's median report names 2, so a pair whose
+    supporting reports each name 90 was not observed 9 times — it was observed
+    in 9 documents that assert a pair between every drug and every event they
+    list. It is a property of the evidence, not of the drug, and `crowding.py`
+    owns what counts as high.
     """
 
     drug: str
@@ -114,6 +121,7 @@ class Pair:
     d: int
     prr: float | None
     chi2: float | None
+    crowding: float | None = None
 
     @property
     def reports(self) -> int:
@@ -154,6 +162,13 @@ corpus AS (
     SELECT count(DISTINCT {report_id}) AS reports
     FROM read_parquet({report_file})
 ),
+-- How many distinct drugs each report names. `exposure` is already distinct,
+-- so this counts products and not repetitions of one. A report listing 90 of
+-- them manufactures a pair against every event it carries, which is the
+-- mechanism behind L-010 and the reason this column exists.
+breadth AS (
+    SELECT {report_id}, count(*) AS drugs FROM exposure GROUP BY 1
+),
 drug_reports AS (
     SELECT drug, count(*) AS with_drug FROM exposure GROUP BY drug
 ),
@@ -161,8 +176,14 @@ event_reports AS (
     SELECT event, count(*) AS with_event FROM occurrence GROUP BY event
 ),
 pair AS (
-    SELECT exposure.drug, occurrence.event, count(*) AS a
-    FROM exposure JOIN occurrence USING ({report_id})
+    SELECT
+        exposure.drug,
+        occurrence.event,
+        count(*)             AS a,
+        median(breadth.drugs) AS crowding
+    FROM exposure
+    JOIN occurrence USING ({report_id})
+    JOIN breadth USING ({report_id})
     GROUP BY 1, 2
     HAVING count(*) >= $min_count
 ),
@@ -171,6 +192,7 @@ cell AS (
         pair.drug,
         pair.event,
         pair.a                                          AS a,
+        pair.crowding                                   AS crowding,
         drug_reports.with_drug - pair.a                 AS b,
         event_reports.with_event - pair.a               AS c,
         corpus.reports - drug_reports.with_drug
@@ -185,7 +207,7 @@ cell AS (
 ),
 scored AS (
     SELECT
-        drug, event, a, b, c, d,
+        drug, event, a, b, c, d, crowding,
         CASE
             WHEN c > 0 AND reports - with_drug > 0
             THEN (a::DOUBLE / with_drug) / (c::DOUBLE / (reports - with_drug))
@@ -202,7 +224,7 @@ scored AS (
         END AS chi2
     FROM cell
 )
-SELECT drug, event, a, b, c, d, prr, chi2
+SELECT drug, event, a, b, c, d, prr, chi2, crowding
 FROM scored
 WHERE NOT $signals_only
    OR (prr >= $signal_prr AND chi2 >= $signal_chi2 AND a >= $signal_min_count)
@@ -221,15 +243,22 @@ def _parquet(directory: Path, table: str) -> str:
     return f"'{directory / f'{table}.parquet'}'"
 
 
-def partitions(root: Path = PARQUET_DIR) -> list[Path]:
-    """Every ingested partition directory under `root`, sorted."""
+def partitions(root: Path | str = PARQUET_DIR) -> list[Path]:
+    """Every ingested partition directory under `root`, sorted.
+
+    `root` is coerced rather than required to be a `Path`, because the callers
+    that pass a string are notebooks, and a notebook that has to import
+    `pathlib` to name a directory is a notebook with a line of ceremony in it.
+    """
+    root = Path(root)
+
     if not root.exists():
         return []
 
     return sorted(path.parent for path in root.rglob(f"{REPORT_TABLE}.parquet"))
 
 
-def _directory(partition: str | None, root: Path) -> Path:
+def _directory(partition: str | None, root: Path | str) -> Path:
     """The partition to read, named or discovered.
 
     Discovery rather than a default partition id spelled into the source: an id
@@ -244,6 +273,8 @@ def _directory(partition: str | None, root: Path) -> Path:
         PrrError: nothing is ingested, or more than one thing is and the caller
             did not say which.
     """
+    root = Path(root)
+
     if partition is not None:
         from hindsight.write import partition_dir
 
@@ -276,7 +307,7 @@ def _directory(partition: str | None, root: Path) -> Path:
 
 
 def excluded_terms(
-    connection: duckdb.DuckDBPyConnection, path: Path = EXCLUSIONS
+    connection: duckdb.DuckDBPyConnection, path: Path | str = EXCLUSIONS
 ) -> list[str]:
     """The MedDRA reporting artifacts to drop, read from the committed CSV.
 
@@ -287,8 +318,14 @@ def excluded_terms(
     Raises:
         PrrError: the list is missing, unreadable, or empty.
     """
+    path = Path(path)
+
     if not path.exists():
-        raise PrrError(f"{path} is missing. It is committed; restore it from git.")
+        raise PrrError(
+            f"{path} is missing, resolved from {Path.cwd()}. It is committed, so "
+            f"either restore it from git or pass `exclusions=` — the default is "
+            f"relative to the repo root and a notebook runs one level down."
+        )
 
     query = (
         f"SELECT {TERM_COLUMN} FROM read_csv('{path}', comment='{COMMENT}') "
@@ -312,7 +349,7 @@ def excluded_terms(
 
 def top_pairs(
     *,
-    limit: int = DEFAULT_LIMIT,
+    limit: int | None = DEFAULT_LIMIT,
     min_count: int = DEFAULT_MIN_COUNT,
     signals_only: bool = False,
     partition: str | None = None,
@@ -320,6 +357,9 @@ def top_pairs(
     exclusions: Path = EXCLUSIONS,
 ) -> list[Pair]:
     """The highest-PRR drug–event pairs, each with the 2×2 behind it.
+
+    `limit=None` returns every pair reaching `min_count` — what the chart needs,
+    since a cloud drawn from its own top 20 has no cloud in it.
 
     Pairs whose PRR is undefined — every report carrying the event also carries
     the drug, so `c` is zero — sort last rather than being dropped. The counts

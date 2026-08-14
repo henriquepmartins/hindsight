@@ -28,6 +28,14 @@ packages = ["src/hindsight"]
 dev = [
     "pytest>=9.1.1",
 ]
+# Charts only (AD-015). Deliberately not in `dependencies`: the pipeline never
+# imports any of it, so CI's test run must not pay for it. Only the render
+# workflow asks for this group. pandas arrives as seaborn's own dependency.
+viz = [
+    "matplotlib>=3.10",
+    "seaborn>=0.13",
+    "jupyter>=1.1",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

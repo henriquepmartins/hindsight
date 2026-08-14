@@ -13,6 +13,10 @@ data/manifest/*
 # Build artifacts
 _site/
 .quarto/
+# Quarto's per-document output. reports/*.qmd is the source and
+# reports/data/*.csv is committed input; the rendered page is neither.
+reports/*.html
+reports/*_files/
 dist/
 *.egg-info/
 
