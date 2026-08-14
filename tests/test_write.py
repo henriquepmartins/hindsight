@@ -164,3 +164,25 @@ def test_a_row_the_frozen_schema_has_no_column_for_stops_the_write(tmp_path):
         write_partition(iter(later), schemas, tmp_path / "out")
 
     assert not list((tmp_path / "out").glob("*.parquet"))
+
+
+def test_distinct_ids_are_not_counted_as_repeats(tmp_path):
+    reports = [report(safetyreportid=str(n)) for n in range(3)]
+    written = write_partition(iter(reports), infer(iter(reports)), tmp_path / "out")
+
+    assert written.repeated_report_ids == 0
+
+
+def test_a_repeated_safetyreportid_is_counted_and_both_rows_are_kept(tmp_path):
+    reports = [report(safetyreportid="1"), report(safetyreportid="1")]
+    written = write_partition(iter(reports), infer(iter(reports)), tmp_path / "out")
+
+    assert written.repeated_report_ids == 1
+    assert written.rows["report"] == 2
+
+
+def test_the_repeat_count_is_extra_rows_not_distinct_ids(tmp_path):
+    reports = [report(safetyreportid="1") for _ in range(3)]
+    written = write_partition(iter(reports), infer(iter(reports)), tmp_path / "out")
+
+    assert written.repeated_report_ids == 2

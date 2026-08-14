@@ -97,6 +97,7 @@ def snapshot(
         "manifest_records": partition.records,
         "rows": rows,
         "distinct_openfda": written.distinct_openfda,
+        "repeated_report_ids": written.repeated_report_ids,
         "bytes": {
             "source_zip": zip_bytes,
             "source_json": json_bytes,

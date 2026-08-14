@@ -7,6 +7,7 @@ from pathlib import Path
 
 from hindsight.analysis import crowding
 from hindsight.analysis.prr import (
+    COMMENT,
     DEFAULT_MIN_COUNT,
     Pair,
     PrrError,
@@ -30,7 +31,38 @@ class Written:
     partition: str
 
 
-def _provenance(directory: Path) -> tuple[str, str]:
+PROVENANCE = ("partition", "export_date", "min_count")
+
+
+def provenance(path: Path = DEFAULT_CSV) -> dict[str, str]:
+    if not path.exists():
+        raise PrrError(f"{path} não existe, resolvido a partir de {Path.cwd()}.")
+
+    found = {}
+
+    with path.open(newline="") as handle:
+        for line in handle:
+            if not line.startswith(COMMENT):
+                break
+
+            name, separator, value = line[len(COMMENT) :].partition(":")
+
+            if separator and name.strip() in PROVENANCE:
+                found[name.strip()] = value.strip()
+
+    missing = set(PROVENANCE) - set(found)
+
+    if missing:
+        raise PrrError(
+            f"{path} não nomeia {sorted(missing)} no cabeçalho. Sem isso a "
+            f"página publicada não da para amarrar a partição que a produziu, e "
+            f"uma divergência entre as duas fica ilegivel."
+        )
+
+    return found
+
+
+def _ingested_provenance(directory: Path) -> tuple[str, str]:
     path = directory / "metrics.json"
 
     if not path.exists():
@@ -53,7 +85,7 @@ def write_csv(
     root: Path = PARQUET_DIR,
 ) -> Written:
     directory = _directory(partition, root)
-    partition_id, export_date = _provenance(directory)
+    partition_id, export_date = _ingested_provenance(directory)
 
     cut = crowding.breadth(quantile=quantile, partition=partition, root=root)["cut"]
     pairs = top_pairs(limit=None, min_count=min_count, partition=partition, root=root)
