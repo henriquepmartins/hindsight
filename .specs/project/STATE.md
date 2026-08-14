@@ -259,10 +259,33 @@ Em M0 — um gráfico, um CSV, tudo commitado junto — o risco é pequeno. O re
 
 **Consequence for M4 scope:** SrLC starting in 2016 is not a real constraint — FAERS runs from 2004, giving a 12-year lookback before the first evaluable event. That is close to the ideal shape for a lead-time study.
 
+### B-005: a normalização que faz o round trip passar não é um inverso na era antiga — ABERTO 2026-08-14
+
+**Descoberto:** revisão do PR da T19, ao perguntar quanto da era antiga a recusa por id estava jogando fora. A resposta expôs um problema maior que o id.
+
+**O fato:** em `2004q1/0001-of-0005`, **12.000 de 12.000 relatos carregam pelo menos um null explícito.** `receiver: null` em todos os 12.000, `primarysource: null` em 3.165, `patient.patientdeath.*: null` em 1.139, e **`patient.drug: null` em 1.375**.
+
+**Por que isso é pior que B-004.** L-008 é a lição de que remover nulls dos dois lados antes de comparar só é o inverso do que o Parquet fez **se a fonte nunca carregar um null explícito** — caso contrário a remoção apaga um valor real dos dois lados, os dois passam a concordar, e o teste construído para pegar perda silenciosa vira o mecanismo que a esconde. L-008 mediu **0 nulls explícitos** e concluiu que a comparação significava o que dizia. Aquela medição era de 2025, e L-008 já dizia em letras que ela não transfere.
+
+Ela não transferiu. Medido agora com o guarda por relatório em vigor: dos 12.000, **12 são recusados por id ambíguo e 11.988 reconstroem idênticos — depois de remover os nulls dos dois lados.** Esse 11.988 **não é prova de nada**: é exatamente a comparação autocertificante que L-008 descreve. A leitura correta não é "99,9% da era antiga é comprovadamente lossless", é "não sabemos, e o número que parece dizer que sabemos é o número que L-008 mandou desconfiar".
+
+**O caminho de perda é concreto**, não teórico: `patient.drug: null` chega em 1.375 relatos, `normalize._entries` trata null como ausente e escreve zero linhas de medicamento, e `reconstruct` não emite a chave. A fonte tinha `"drug": null`, o rebuild não tem `drug`. Só a remoção de nulls faz os dois parecerem iguais.
+
+**Por que não vazou:** `test_the_whole_partition_rebuilds_from_parquet` afirma a precondição por relatório antes de comparar (T11, que foi o que L-008 comprou). Em 2004 ela falha no primeiro relato. O teste **recusa** em vez de mentir, que é o desenho funcionando. Mas o resultado prático é que o round trip não tem nada a dizer sobre a era antiga.
+
+**A decisão que falta, e que nenhuma task contém:** o round trip precisa distinguir *ausente* de *explicitamente nulo*. As opções não são equivalentes:
+- *Marcar presença por campo* — resolve de verdade e custa uma coluna de máscara ou um sentinela por campo anulável, em cinco tabelas.
+- *Declarar o null explícito como normalização anunciada* — barato, e é exatamente a "identidade após uma normalização não declarada" que AD-013 recusou em outro contexto.
+- *Escopo declarado: o round trip prova as eras sem null explícito, e a página diz quais são* — zero código, e publica o buraco onde a fonte é mais suja.
+
+**Resolver antes de:** M1 ligar o job por era de AD-019, junto com B-004. Este é o que decide se ele tem o que provar; B-004 decide de quantos relatórios.
+
 ### B-004: `safetyreportid` não identifica um relato na era antiga — ABERTO 2026-08-14
 
 **Descoberto:** T19, na primeira partição fora de 2025 que o pipeline viu.
-**Impacto:** o round trip — a única prova de que "lossless" é verdade — **não roda em `2004q1/0001-of-0005`**. `Tables.load` levanta `BrokenTables` por 6 ids repetidos em 12.000, e a recusa está correta: com duas submissões debaixo de um id, não existe informação sobre qual array de medicamento pertence a qual. Bloqueia o job por era de AD-019 na primeira era que ele rodar, e contradiz `design.md`, que ainda chama `safetyreportid` de PK do `report`.
+**Impacto:** **12 relatórios de `2004q1/0001-of-0005` são irreconstruíveis** — 6 ids, dois documentos cada. `reconstruct` os recusa por nome e os outros 11.988 seguem reconstruíveis; a versão inicial deste guarda recusava a partição inteira, o que foi corrigido na revisão do PR. Contradiz `design.md`, que chamava `safetyreportid` de PK do `report`.
+
+**Corrigido em relação ao que esta entrada dizia primeiro:** o id repetido **não** é o que impede o round trip na era antiga. Esse é **B-005**, e é maior. Aqui trata-se de 12 relatórios em 12.000; lá, dos 12.000.
 
 **O que já se sabe:** os 6 pares não são o mesmo relato duas vezes. Diferem em `transmissiondate` e em `companynumb` ou `primarysource` (L-013). São dois documentos distintos, e a fonte não oferece nada que os separe além da posição no arquivo — `report_duplicate` não existe em 2004, então `duplicatenumb` também não.
 
@@ -273,7 +296,7 @@ Em M0 — um gráfico, um CSV, tudo commitado junto — o risco é pequeno. O re
 - *Round trip por era só onde os ids são únicos, com a cobertura publicada.* Zero código. Publica um buraco exatamente onde a fonte é mais suja, que é onde a prova mais vale.
 - *Deduplicar na ingestão.* Descartado à partida: decide M2 na ingestão, e os dois documentos não são iguais.
 
-**Resolver antes de:** M1 ligar o job de AD-019. Até lá, "byte-identical" é propriedade das eras medidas, não do corpus, e é assim que precisa aparecer na página.
+**Resolver antes de:** M1 ligar o job de AD-019, junto com B-005. Até lá, "byte-identical" é propriedade das eras medidas, não do corpus, e é assim que precisa aparecer na página.
 
 ### ~~B-003: `pyarrow` / `duckdb` not installed locally~~ — RESOLVED 2026-08-13
 
@@ -466,7 +489,9 @@ Sobre 20.692.690 relatos, só os fatos projetam **1,7 GB na densidade de 2004 e 
 
 Os seis pares **não são o mesmo relato duas vezes.** Conferidos contra o zip da fonte, cada par difere em `transmissiondate` e em mais um campo — `companynumb` (`163-20785-04030148` contra `163-20784-04030148`) num caso, `primarysource` ausente contra presente noutro. São duas submissões distintas debaixo de um id só.
 
-**A consequência é B-004:** `Tables.load` levanta `BrokenTables` nesta partição, então **o round trip não roda na era antiga** — não por bug, mas porque o modelo assume que `safetyreportid` identifica um relato, e `design.md` ainda o chama de PK. AD-019 marcou o round trip por era como job agendado de M1 e ele falharia na primeira era que rodasse. O comportamento está correto: recusar é melhor do que reconstruir chutando qual array pertence a qual relato. Mas a prova central do projeto não alcança 2004 hoje.
+**A consequência é B-004:** `reconstruct` recusa esses 12 relatórios pelo nome, e `design.md` não pode mais chamar `safetyreportid` de PK. O comportamento está correto — recusar é melhor do que reconstruir chutando qual array pertence a qual relato.
+
+> ⚠️ **Esta lição afirmou primeiro que o id repetido era o que impedia o round trip em 2004. Estava incompleta, e a revisão do PR encontrou a metade maior.** A partição carrega **null explícito em 12.000 de 12.000 relatos**, o que quebra a precondição de L-008 e torna a comparação autocertificante. É **B-005**. Os 11.988 que "reconstroem idênticos" só o fazem depois de remover os nulls dos dois lados, que é precisamente a operação que L-008 mandou não confiar. B-004 custa 12 relatórios; B-005 custa a era inteira.
 
 **E a era antiga é onde M2 tem mais trabalho e menos ferramenta.** O diff de schema:
 
@@ -582,7 +607,8 @@ Os seis pares **não são o mesmo relato duas vezes.** Conferidos contra o zip d
 | `dim_openfda` como fatia da saída | **63%** em 2004 (1,74 MB, 1.128 blocos) · 55% em 2025 | T19, mesma rodada |
 | Linhas em 2004 | drug **36.324** · reaction **39.435** · duplicate **0** | T19, `metrics.json` |
 | **`safetyreportid` repetidos em 2004** | **6 de 12.000** (11.994 distintos), e os pares **não são idênticos** | T19, Parquet e zip da fonte (L-013, B-004) |
-| Round trip em 2004 | **não roda** — `Tables.load` levanta `BrokenTables` | T19, B-004 |
+| Round trip em 2004 | **12 recusados** por id ambíguo · 11.988 idênticos **só após remover nulls dos dois lados** | Revisão do PR da T19 (B-004, B-005) |
+| **Nulls explícitos em 2004** | **12.000 de 12.000 relatos** — `receiver` em todos, `patient.drug: null` em 1.375 | Revisão do PR da T19, caminhando todo valor (B-005) |
 | Colunas 2004 ↔ 2025 | `report` 24↔31 · `report_drug` 16↔29 · `report_reaction` 3↔5 · `report_duplicate` 2↔4 | T19, diff dos dois schemas versionados |
 | `activesubstance` em 2004 | **ausente** — o PROJECT a nomeia como entrada da resolução de entidades de M2 | T19, mesmo diff |
 | Cobertura em 2004 | UNII **51,9%** (contra 82,9%) · `drugstartdate` **32,8%** (contra 22,5%) · `companynumb` 89,6% | T19, `metrics.json` |

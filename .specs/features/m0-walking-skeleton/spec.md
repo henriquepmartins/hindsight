@@ -105,11 +105,13 @@ M0 pushes 12,000 reports through every layer of the real architecture and puts o
 3. WHEN any report differs THEN the test SHALL fail and name the differing keys and the `safetyreportid`
 4. WHEN the test runs in CI on push THEN the build SHALL fail on mismatch
 5. WHEN the test runs THEN it SHALL use a committed fixture of ~100 reports, not the full 246 MB partition — CI must not depend on a 22-second download
-6. WHEN two report rows share a `safetyreportid` THEN reconstruction SHALL raise rather than pick one — a reconstruction that guesses which child array belongs to which report would pass the test without being the inverse of the write, which is the L-008 failure shape (AD-020)
+6. WHEN two report rows share a `safetyreportid` THEN reconstruction SHALL refuse **that report** and leave the rest of the partition reconstructible — a reconstruction that guesses which child array belongs to which report would pass the test without being the inverse of the write, which is the L-008 failure shape (AD-020). Refusing the whole partition to reject 12 of 12,000 rows was the first shape of this guard and was corrected in review
 
 **Independent Test:** Corrupt one field in the normalizer, watch CI go red, revert.
 
 **Scope of the claim:** on push this proves losslessness over ~100 reports of one 2025 export. Per-era coverage is a scheduled M1 job, and the site names which eras have been verified (AD-019). The narrow scope is deliberate; leaving it unstated is what would make it dishonest.
+
+**And it currently proves nothing about the early era.** `2004q1/0001-of-0005` carries an explicit null in 12,000 of 12,000 reports, which breaks criterion 1's precondition (L-008): the comparison strips nulls from both sides, and that is only the inverse of the write when the source has none. The test asserts the precondition per report and therefore refuses rather than lying — but B-005 has to be decided before AD-019's job has anything to say about 2004.
 
 ---
 
