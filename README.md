@@ -33,7 +33,9 @@ git clone https://github.com/henriquepmartins/hindsight && cd hindsight
 make all
 ```
 
-**47 s do checkout vazio ao site renderizado, com pico de 325 MB de memória** — medido com `/usr/bin/time -l` num clone recém-feito, contra um teto de projeto de 500 MB e um orçamento de 15 min. O CSV que a página publica sai byte a byte igual ao versionado no repositório, que é o que torna a página verificável em vez de confiável.
+**78 s do checkout vazio ao site renderizado, com pico de 487 MB de memória** — medido com `/usr/bin/time -l` num clone recém-feito, contra um orçamento de 15 min. Inclui a suíte inteira, 209 testes, entre eles o round trip da partição de 12.000 relatórios que só é possível rodar depois que a ingestão aconteceu. O CSV que a página publica sai byte a byte igual ao versionado no repositório, que é o que torna a página verificável em vez de confiável.
+
+Os 487 MB são do teste de round trip, não da ingestão — essa fica em 219 MB. É pouca folga contra o teto de 500 MB que o projeto se impôs, e está registrado como coisa a resolver antes do corpus completo.
 
 Ressalva honesta: o cache de pacotes do `uv` estava quente. Numa máquina que nunca viu essas dependências, some o tempo de baixá-las.
 

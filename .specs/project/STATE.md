@@ -617,7 +617,8 @@ Os seis pares **não são o mesmo relato duas vezes.** Conferidos contra o zip d
 | `activesubstance` em 2004 | **ausente** — o PROJECT a nomeia como entrada da resolução de entidades de M2 | T19, mesmo diff |
 | Cobertura em 2004 | UNII **51,9%** (contra 82,9%) · `drugstartdate` **32,8%** (contra 22,5%) · `companynumb` 89,6% | T19, `metrics.json` |
 | Pico de RSS em 2004 | **211 MB** contra o teto de 500 MB; 9,8 s de parede | T19, `/usr/bin/time -l` |
-| **`make all` em clone limpo** | **47,4 s**, pico **324,5 MB**, site renderizado | T18, clone novo do GitHub + `/usr/bin/time -l` |
+| **`make all` em clone limpo** | **78,1 s**, pico **486,8 MB**, 209 testes, site renderizado | T18 remedido após a revisão incluir os testes lentos no alvo |
+| Quem come a memória do `make all` | o round trip, não a ingestão — 219 MB ingerindo contra 486,8 MB no total | T18, as duas medições |
 | CSV gerado pelo clone limpo | **byte-idêntico** ao versionado | T18, `diff` |
 | Row group contra pico de RSS | 2000 → 219 MB / 4,62 MB · 6000 → 299 MB / 4,23 MB · 12000 → 421 MB / 4,06 MB | T18, três ingestões da mesma partição |
 
@@ -648,7 +649,7 @@ Os seis pares **não são o mesmo relato duas vezes.** Conferidos contra o zip d
 - [x] ~~**Decide AD-013** (`reportduplicate` as a fifth table)~~ — accepted 2026-08-13. Five tables, `seq IS NULL` is the bare-object marker, specs updated to match
 - [ ] Empty arrays are indistinguishable from absent fields (L-007). **T11 re-measured: 0 empty arrays anywhere, and 0 reports without drugs or without reactions**, so the hole still has no known instance. Decide before M1 crawls 1,767 partitions — the reconstruction currently rebuilds the absent version
 - [x] ~~Row-group size: 2,000 costs ~12% of the output size~~ — **T18 mediu os três e manteve 2.000.** 2000 → 219 MB / 4,62 MB · 6000 → 299 MB / 4,23 MB · 12000 → 421 MB / 4,06 MB. A regra de design.md já era "só ajuste se o pico estiver perto do teto", e 219 de 500 não está
-- [x] ~~**`Tables.load` holds a whole partition in Python dicts** — 266 MB for 4.62 MB of Parquet (T10)~~ — T11 kept it. Measured 373 MB peak against the 500 MB ceiling; streaming in `safetyreportid` order would trade that headroom for a sort nothing needs. CI never loads a partition. **Revisit at M1** if a denser partition gets close
+- [ ] **`Tables.load` segura uma partição inteira em dicts Python — e a folga acabou.** T11 mantinha com 373 MB de pico contra o teto de 500. Com o round trip dentro do `make all` (revisão da T18), o pico é **486,8 MB: 13 MB de folga.** A condição que este todo marcava para revisitar — "if a denser partition gets close" — aconteceu. Resolver antes de M1, junto com B-004 e B-005, já que os três moram no mesmo job
 - [x] ~~T11 must assert "zero explicit nulls" per partition rather than inherit T10's measurement (L-008)~~ — done, and it is what makes the round-trip comparison one-sided
 - [x] ~~Add `ijson` to PROJECT.md's key dependencies~~ — o todo estava obsoleto: `ijson` já está na lista de PROJECT.md. Conferido na revisão de 14/08
 - [ ] **Review the exclusion list at the start of M1**, as its own header promises. It was curated against one partition and is a floor, not an enumeration

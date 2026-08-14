@@ -808,8 +808,8 @@ The cost of that, stated rather than discovered later: **the site can disagree w
 
 **Done when:**
 - [x] Fresh clone in a temp dir + `make all` → rendered site, no manual steps — and the CSV it writes is byte-identical to the committed one
-- [x] Under 15 min end to end — **47.4 s**
-- [x] Peak RSS recorded and under 500 MB — **324.5 MB** for the whole chain; 219 MB for ingestion alone
+- [x] Under 15 min end to end — **78.1 s** with the slow suite included
+- [x] Peak RSS recorded and under 500 MB — **486.8 MB** for the whole chain, 219 MB for ingestion alone. The round trip is what costs it, and 13 MB of headroom reopens the `Tables.load` todo
 - [x] README updated with real measured numbers
 - [x] Row-group size decided — **stays 2000**, by the rule design.md already carried
 
