@@ -741,12 +741,33 @@ Both pages were rendered and read at 1180px: navbar with the milestone entry, th
 **Depends on:** T11 · **Requirement:** M0-02, M0-10
 
 **Done when:**
-- [ ] Green on push
-- [ ] Under 2 min
-- [ ] No network beyond the package index
-- [ ] Breaking the normalizer turns it red
+- [x] Green on push — **30 s**
+- [x] Under 2 min
+- [x] No network beyond the package index
+- [x] Breaking the normalizer turns it red
 
-**Verify:** push a deliberately broken branch, confirm red, delete it.
+**Deviations from the original criteria, and why:**
+
+- **A step that asserts matplotlib is *absent*.** AD-015 says the pipeline does not depend on the chart stack, and until this step existed that was a claim about a `pyproject.toml` section. Now `import matplotlib` succeeding fails the build.
+- **⚠️ Its first run went red, and it was right to.** `tests/test_export.py` imported pandas — which arrives with seaborn, in the `viz` group CI does not install — so the suite had been passing locally only because the chart stack happened to be synced there. Fixed by reading the CSV with the standard library rather than by widening the group: these tests assert what the *file* contains, and a reader that types the columns for you is testing the reader. **The one dependency rule this milestone wrote down was already broken when the check for it was added**, which is the argument for the check.
+- **`--frozen`, not a bare `uv sync`.** CI resolves nothing. A `uv.lock` that disagrees with `pyproject.toml` is a failure to report, not a difference to paper over on the way to a green tick.
+- **`concurrency` with `cancel-in-progress`.** The suite is seconds long; this is about not queueing behind a run whose answer nobody wants any more.
+- **`pull_request` as well as `push`**, so the check exists before a merge rather than after.
+
+**Verify:**
+```
+run 31805684152  main              success  30s
+run 31805757494  ci-must-go-red    failure  14s
+```
+The broken branch flipped `if block is None` back to `if not block` in `OpenfdaDimension.add` — the L-005 bug — and CI reported:
+```
+FAILED tests/test_normalize.py::test_an_empty_block_is_a_real_block_with_a_real_key
+FAILED tests/test_normalize.py::test_the_falsy_test_is_the_bug_this_rule_exists_for
+FAILED tests/test_normalize.py::test_an_absent_block_keys_to_none_and_an_empty_one_does_not
+FAILED tests/test_normalize.py::test_key_is_pinned_not_merely_stable
+4 failed, 187 passed, 1 deselected in 2.97s
+```
+Branch deleted locally and on the remote.
 
 **Commit:** `ci: round-trip test on push`
 
