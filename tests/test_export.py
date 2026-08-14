@@ -7,10 +7,10 @@ from drifting apart. And it has to contain **every** pair rather than the CLI's
 top 20, because a scatter plot drawn from its own summit is a dot.
 """
 
+import csv
 import json
 from pathlib import Path
 
-import pandas
 import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
@@ -71,10 +71,20 @@ def three_pairs(tmp_path):
 
 
 def written(root: Path, **kwargs):
+    """Write the file, then read it back with the standard library.
+
+    Deliberately not pandas. pandas lives in the `viz` group, which CI does not
+    install (AD-015) — the first CI run failed on exactly that, and the fix is
+    not to widen the group. These tests assert what the *file* contains, and a
+    reader that types the columns for you is testing the reader.
+    """
     path = root / "out.csv"
     result = write_csv(path, root=root / "parquet", **kwargs)
 
-    return result, pandas.read_csv(path, comment="#"), path.read_text()
+    with path.open(newline="") as handle:
+        rows = list(csv.DictReader(line for line in handle if not line.startswith("#")))
+
+    return result, rows, path.read_text()
 
 
 # --- provenance --------------------------------------------------------------
@@ -109,24 +119,25 @@ def test_every_pair_is_written_not_only_the_top(tmp_path):
     events = [f"E{n}" for n in range(5)]
     corpus(tmp_path / "parquet", {str(n): (drugs, events) for n in range(6)})
 
-    result, frame, _ = written(tmp_path)
+    result, rows, _ = written(tmp_path)
 
-    assert result.pairs == len(frame) == 25
+    assert result.pairs == len(rows) == 25
 
 
 def test_the_columns_are_the_contract(three_pairs):
-    _, frame, _ = written(three_pairs)
+    _, rows, _ = written(three_pairs)
 
-    assert list(frame.columns) == COLUMNS
+    assert list(rows[0]) == COLUMNS
 
 
 def test_the_counts_survive_the_round_trip_as_numbers(three_pairs):
-    """QUOTE_ALL quotes the integers too. They have to come back as integers."""
-    _, frame, _ = written(three_pairs)
+    """QUOTE_ALL quotes the integers too, so the file has to carry text that is
+    still numeric — and the four cells still have to add up to the corpus."""
+    _, rows, _ = written(three_pairs)
+    cells = [int(rows[0][name]) for name in "abcd"]
 
-    assert frame.a.dtype.kind == "i"
-    assert frame.loc[0, "a"] == 3
-    assert frame.loc[0, "a"] + frame.loc[0, "b"] + frame.loc[0, "c"] + frame.loc[0, "d"] == 3
+    assert cells[0] == 3
+    assert sum(cells) == 3
 
 
 def test_a_backslash_in_a_product_name_survives(tmp_path):
@@ -137,9 +148,9 @@ def test_a_backslash_in_a_product_name_survives(tmp_path):
         {str(n): ([r"A\B"], ["Headache"]) for n in range(3)},
     )
 
-    _, frame, _ = written(tmp_path)
+    _, rows, _ = written(tmp_path)
 
-    assert frame.loc[0, "drug"] == r"A\B"
+    assert rows[0]["drug"] == r"A\B"
 
 
 def test_a_comma_in_an_event_name_survives(tmp_path):
@@ -148,9 +159,9 @@ def test_a_comma_in_an_event_name_survives(tmp_path):
         {str(n): (["ASPIRIN"], ["Sleep disorder, insomnia type"]) for n in range(3)},
     )
 
-    _, frame, _ = written(tmp_path)
+    _, rows, _ = written(tmp_path)
 
-    assert frame.loc[0, "event"] == "Sleep disorder, insomnia type"
+    assert rows[0]["event"] == "Sleep disorder, insomnia type"
 
 
 # --- the crowding verdict ----------------------------------------------------
@@ -163,11 +174,11 @@ def test_crowded_marks_pairs_whose_reports_name_many_drugs(tmp_path):
     reports["wide"] = ([f"D{n}" for n in range(40)], ["Rash"])
     corpus(tmp_path / "parquet", reports)
 
-    _, frame, _ = written(tmp_path, min_count=1)
-    verdict = dict(zip(frame.drug + "|" + frame.event, frame.crowded))
+    _, rows, _ = written(tmp_path, min_count=1)
+    verdict = {f"{row['drug']}|{row['event']}": row["crowded"] for row in rows}
 
-    assert verdict["ASPIRIN|Headache"] == 0
-    assert verdict["D0|Rash"] == 1
+    assert verdict["ASPIRIN|Headache"] == "0"
+    assert verdict["D0|Rash"] == "1"
 
 
 def test_the_cut_moves_with_the_quantile(tmp_path):
@@ -184,6 +195,6 @@ def test_the_cut_moves_with_the_quantile(tmp_path):
 def test_the_file_is_read_back_before_it_is_called_written(three_pairs):
     """The write verifies itself, so a malformed file fails here and not in a
     render workflow on a machine with no partition to regenerate from."""
-    result, frame, _ = written(three_pairs)
+    result, rows, _ = written(three_pairs)
 
-    assert result.pairs == len(frame)
+    assert result.pairs == len(rows)
