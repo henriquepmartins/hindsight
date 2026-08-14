@@ -1,0 +1,127 @@
+{
+  "source": {
+    "partition": "2004q1/0001-of-0005",
+    "export_date": "2026-08-10",
+    "records": 12000
+  },
+  "tables": {
+    "report": {
+      "companynumb": "string",
+      "fulfillexpeditecriteria": "string",
+      "primarysource": {
+        "qualification": "string",
+        "reportercountry": "string"
+      },
+      "pt_patientdeath": {
+        "patientdeathdate": "string",
+        "patientdeathdateformat": "string"
+      },
+      "pt_patientonsetage": "string",
+      "pt_patientonsetageunit": "string",
+      "pt_patientsex": "string",
+      "pt_patientweight": "string",
+      "receiptdate": "string",
+      "receiptdateformat": "string",
+      "receivedate": "string",
+      "receivedateformat": "string",
+      "receiver": "string",
+      "safetyreportid": "string",
+      "sender": {
+        "senderorganization": "string"
+      },
+      "serious": "string",
+      "seriousnesscongenitalanomali": "string",
+      "seriousnessdeath": "string",
+      "seriousnessdisabling": "string",
+      "seriousnesshospitalization": "string",
+      "seriousnesslifethreatening": "string",
+      "seriousnessother": "string",
+      "transmissiondate": "string",
+      "transmissiondateformat": "string"
+    },
+    "report_drug": {
+      "drugadministrationroute": "string",
+      "drugauthorizationnumb": "string",
+      "drugbatchnumb": "string",
+      "drugcharacterization": "string",
+      "drugdosagetext": "string",
+      "drugenddate": "string",
+      "drugenddateformat": "string",
+      "drugindication": "string",
+      "drugstartdate": "string",
+      "drugstartdateformat": "string",
+      "drugtreatmentduration": "string",
+      "drugtreatmentdurationunit": "string",
+      "medicinalproduct": "string",
+      "openfda_key": "string",
+      "safetyreportid": "string",
+      "seq": "int64"
+    },
+    "report_reaction": {
+      "reactionmeddrapt": "string",
+      "safetyreportid": "string",
+      "seq": "int64"
+    },
+    "report_duplicate": {
+      "safetyreportid": "string",
+      "seq": "int64"
+    },
+    "dim_openfda": {
+      "application_number": [
+        "string"
+      ],
+      "brand_name": [
+        "string"
+      ],
+      "generic_name": [
+        "string"
+      ],
+      "manufacturer_name": [
+        "string"
+      ],
+      "nui": [
+        "string"
+      ],
+      "openfda_key": "string",
+      "package_ndc": [
+        "string"
+      ],
+      "pharm_class_cs": [
+        "string"
+      ],
+      "pharm_class_epc": [
+        "string"
+      ],
+      "pharm_class_moa": [
+        "string"
+      ],
+      "pharm_class_pe": [
+        "string"
+      ],
+      "product_ndc": [
+        "string"
+      ],
+      "product_type": [
+        "string"
+      ],
+      "route": [
+        "string"
+      ],
+      "rxcui": [
+        "string"
+      ],
+      "spl_id": [
+        "string"
+      ],
+      "spl_set_id": [
+        "string"
+      ],
+      "substance_name": [
+        "string"
+      ],
+      "unii": [
+        "string"
+      ]
+    }
+  }
+}

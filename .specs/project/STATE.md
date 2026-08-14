@@ -259,6 +259,22 @@ Em M0 — um gráfico, um CSV, tudo commitado junto — o risco é pequeno. O re
 
 **Consequence for M4 scope:** SrLC starting in 2016 is not a real constraint — FAERS runs from 2004, giving a 12-year lookback before the first evaluable event. That is close to the ideal shape for a lead-time study.
 
+### B-004: `safetyreportid` não identifica um relato na era antiga — ABERTO 2026-08-14
+
+**Descoberto:** T19, na primeira partição fora de 2025 que o pipeline viu.
+**Impacto:** o round trip — a única prova de que "lossless" é verdade — **não roda em `2004q1/0001-of-0005`**. `Tables.load` levanta `BrokenTables` por 6 ids repetidos em 12.000, e a recusa está correta: com duas submissões debaixo de um id, não existe informação sobre qual array de medicamento pertence a qual. Bloqueia o job por era de AD-019 na primeira era que ele rodar, e contradiz `design.md`, que ainda chama `safetyreportid` de PK do `report`.
+
+**O que já se sabe:** os 6 pares não são o mesmo relato duas vezes. Diferem em `transmissiondate` e em `companynumb` ou `primarysource` (L-013). São dois documentos distintos, e a fonte não oferece nada que os separe além da posição no arquivo — `report_duplicate` não existe em 2004, então `duplicatenumb` também não.
+
+**A decisão que falta, e que T19 não contém:** dar ao `report` uma chave substituta — a posição do relato dentro da partição — para que a reconstrução volte a ser possível por era. É barato de implementar e caro de decidir sem querer: mexe na chave de junção de cinco tabelas, no `seq` das filhas, na afirmação de PK do design, e na forma como M2 vai falar de duplicata. **Não implementado deliberadamente.**
+
+**Alternativas na mesa:**
+- *Chave substituta `(partition_id, ordinal)`.* Reconstrução volta a funcionar em toda era; `safetyreportid` vira atributo e a colisão vira dado de M2 em vez de obstáculo. Custa migração das cinco tabelas.
+- *Round trip por era só onde os ids são únicos, com a cobertura publicada.* Zero código. Publica um buraco exatamente onde a fonte é mais suja, que é onde a prova mais vale.
+- *Deduplicar na ingestão.* Descartado à partida: decide M2 na ingestão, e os dois documentos não são iguais.
+
+**Resolver antes de:** M1 ligar o job de AD-019. Até lá, "byte-identical" é propriedade das eras medidas, não do corpus, e é assim que precisa aparecer na página.
+
 ### ~~B-003: `pyarrow` / `duckdb` not installed locally~~ — RESOLVED 2026-08-13
 
 **Resolution:** Closed by **T2**. Pinned in `uv.lock` and verified from a clean clone with `uv sync --frozen`: Python 3.12.12 · duckdb 1.5.5 · pyarrow 25.0.1 · ijson 3.5.1 · httpx 0.28.1 · pytest 9.1.1 (dev group). `polars` deliberately omitted (design.md).
@@ -308,6 +324,8 @@ Compression is this extreme because nearly every column is low-cardinality and d
 > ✅ **Resolved by T7, closed by T9:** the distinct-`openfda` count is **2,251** for `2025q1/0001-of-0028`, measured by running `OpenfdaDimension` over all 12,000 reports. Neither recorded value was right (2,537 above, 1,491 originally here), which is what the missing spike output already implied. The partition holds 71,990 drug rows and 44,916 reaction rows against L-003's 103,187 / 57,664 — a different partition, not a regression.
 >
 > **The 338× does not reproduce either: T9 measures 175×** (4.62 MB, ZSTD-9, lossless). Not an order of magnitude, so nothing here says the pipeline is wrong, and the gap is now accounted for rather than waved at. Row-group size explains ~12% of it (4.06 MB in one group, 199×) and `dim_openfda` is 55% of what remains — 2.53 MB for 2,251 blocks, which are lists of brand names, NDC codes and SPL ids that dictionary-encode badly because they genuinely do not repeat. The rest is the dead partition: it held 43% more drug rows and 1.2 GB of JSON against this one's 807 MB, so its ratio was taken on a different, denser file. **Publish 175×, not 338×.** The corpus projection barely moves, because the two halves scale differently: the fact tables are 2.09 MB of the 4.62 and scale linearly (~3.7 GB over 1,767 partitions), while `dim_openfda` converges — the same products recur in every quarter, so it is a fixed cost paid once, not 2.53 MB × 1,767. L-003's ~3.4 GB is still the right order of magnitude. One partition has been measured; T19 is the second.
+>
+> ✅ **T19 mediu a segunda, e ela desce a projeção.** `2004q1/0001-of-0005` comprime **78,8×** — muito pior que 175× — e mesmo assim sai **menor em bytes**: 2,78 MB contra 4,62 MB, com os mesmos 12.000 relatos. A razão caiu porque a fonte é menos redundante, não porque o pipeline é pior. Só os fatos projetam **1,7 GB (densidade 2004) a 3,6 GB (densidade 2025)** sobre 20.692.690 relatos, com 23% do corpus anterior a 2015. **A razão a citar depende da era; o número de corpus a citar é a faixa.** Ver L-013.
 
 **Verified not to be silent data loss:** row counts match the source exactly (12,000 / 103,187), all 21+15+5 columns survive, and a join+group-by across the full partition returns 322,185 distinct drug–event pairs in **0.048s**.
 
@@ -424,6 +442,44 @@ Then the number that changed the milestone's deliverable: **125 reports of 12,00
 
 **Prevents:** a dependency boundary that is documentation. The general shape is worth more than the instance: **a constraint the environment does not enforce is a constraint that is already violated somewhere you have not looked**, and the interval between writing AD-015 and CI catching this was one task. It also says something about the local environment — `uv sync --group viz` makes the developer's machine strictly more permissive than CI, so anything CI must reject has to be checked there rather than here.
 
+### L-013: A era antiga é mais barata, e é a única que o round trip não consegue provar
+
+**Contexto:** T19 rodou o pipeline contra `2004q1/0001-of-0005` — a partição mais antiga do export — para descobrir se os números de armazenamento de M1 valem fora de 2025. Todo número deste projeto vinha de uma partição de 2025.
+
+**Problema:** a razão de compressão despencou de **175× para 78,8×**, que era exatamente o cenário que a task mandava tratar como "revise a projeção antes de M1". Só que a leitura óbvia está errada.
+
+**Solução — a razão piorou e o tamanho melhorou.** A partição de 2004 sai com **2,78 MB de Parquet contra os 4,62 MB da de 2025**, com o mesmo número de relatos. A razão caiu porque a *fonte* é menos redundante, não porque o pipeline é pior: 219 MB de JSON contra 807 MB, `openfda` presente em muito menos linhas (1.128 blocos distintos contra 2.251), 36.324 linhas de medicamento contra 71.990. Comprimir 175× um arquivo inchado e 78,8× um arquivo enxuto pode dar o arquivo enxuto menor, e deu.
+
+Então a projeção de corpus **desce**, não sobe:
+
+| | 2004q1/0001-of-0005 | 2025q1/0001-of-0028 |
+|---|---|---|
+| JSON da fonte | 219,2 MB | 807,5 MB |
+| Parquet | **2,78 MB** | 4,62 MB |
+| Razão | 78,8× | 175× |
+| Fatos por relato | **83 B** | 174 B |
+| `dim_openfda` como fatia da saída | **63%** (1,74 MB) | 55% (2,47 MB) |
+
+Sobre 20.692.690 relatos, só os fatos projetam **1,7 GB na densidade de 2004 e 3,6 GB na de 2025**, e 23% do corpus é anterior a 2015. O `< 5 GB` da G1 sobrevive com folga. L-003 pode parar de ser um número com asterisco.
+
+**Depois vem a parte que muda o design.** A partição carrega **6 `safetyreportid` repetidos em 12.000** — 11.994 distintos. A guarda de AD-020 disparou na primeira exposição real que teve, e o 0-de-12.000 de 2025 era mesmo propriedade de um export e não do corpus.
+
+Os seis pares **não são o mesmo relato duas vezes.** Conferidos contra o zip da fonte, cada par difere em `transmissiondate` e em mais um campo — `companynumb` (`163-20785-04030148` contra `163-20784-04030148`) num caso, `primarysource` ausente contra presente noutro. São duas submissões distintas debaixo de um id só.
+
+**A consequência é B-004:** `Tables.load` levanta `BrokenTables` nesta partição, então **o round trip não roda na era antiga** — não por bug, mas porque o modelo assume que `safetyreportid` identifica um relato, e `design.md` ainda o chama de PK. AD-019 marcou o round trip por era como job agendado de M1 e ele falharia na primeira era que rodasse. O comportamento está correto: recusar é melhor do que reconstruir chutando qual array pertence a qual relato. Mas a prova central do projeto não alcança 2004 hoje.
+
+**E a era antiga é onde M2 tem mais trabalho e menos ferramenta.** O diff de schema:
+
+- `report_drug` tem **16 colunas em 2004 contra 29 em 2025**, e entre as 13 ausentes está **`activesubstance`** — que o PROJECT nomeia como entrada da resolução de entidades de M2. Em 2004 ela não existe.
+- **UNII cobre 51,9% das linhas de medicamento contra 82,9% em 2025.** A "cauda longa sem identificador canônico" que L-004 quantificou em ~17% é de **48%** na era antiga.
+- **`report_duplicate` tem 0 linhas**: o campo não existe em 2004. `duplicatenumb`, que AD-013 identificou como aquilo em que a deduplicação de M2 junta, não está lá — justamente na era em que os ids colidem.
+- `report` perde 8 colunas de 2025 e ganha uma que sumiu depois (`pt_patientdeath`); `primarysource`, `receiver` e `sender` são structs de forma diferente.
+- Boa notícia isolada: **`drugstartdate` cobre 32,8% contra 22,5% em 2025.** A análise de tempo até o evento de M3 tem *mais* dados na era antiga, não menos.
+
+**Fronteira de era, que é o que AD-017 precisava:** 24 contra 31 colunas em `report`, 16 contra 29 em `report_drug`, três structs de forma diferente. 2004 e 2025 não são a mesma era por nenhum critério, e o diff de campos é evidência utilizável em vez de uma década escolhida no papel.
+
+**Previne:** dimensionar M1 por uma partição de 2025 e descobrir na partição 900 que o identificador não identifica. Também previne o erro mais caro que estava armado: publicar "byte-identical" como propriedade do corpus quando ela é, hoje, propriedade das eras em que ninguém reusou um id.
+
 ### L-002: Always measure before believing a size number
 
 **Context:** Two sizing assumptions were wrong on inspection — the FAERS ASCII files (assumed fast, actually stalled) and the JSON corpus (assumed dense, actually 93% redundant).
@@ -518,6 +574,19 @@ Then the number that changed the milestone's deliverable: **125 reports of 12,00
 | CSV publicado vs. Parquet local | **byte-idêntico**, 28.540 pares · 18.946 lotados · corte 27,0 | Revisão 14/08, `write_csv` para tmp e `diff` |
 | Suíte rápida com as guardas novas | **202 testes, 1,6 s** (eram 191) | Revisão 14/08, `make test` |
 | Round trip com a guarda de id repetido | **12.000 / 12.000**, 24,6 s | Revisão 14/08, `pytest -m slow` |
+| **Partição mais antiga do export** | `2004q1/0001-of-0005` — 44,4 MB, 12.000 registros, 5 partições no bucket | T19, manifesto |
+| **Compressão em 2004** | **78,8×** (219,2 MB → 2,78 MB), contra 175× em 2025 | T19, `hindsight ingest` |
+| Parquet de 2004 é **menor** que o de 2025 | 2,78 MB contra 4,62 MB, mesmos 12.000 relatos | T19, mesma rodada |
+| Fatos por relato | **83 B** em 2004 · 174 B em 2025 | T19, tamanhos por arquivo |
+| Projeção só-fatos do corpus | **1,7 GB .. 3,6 GB** sobre 20.692.690 relatos; 23% do corpus é anterior a 2015 | T19, as duas densidades × manifesto |
+| `dim_openfda` como fatia da saída | **63%** em 2004 (1,74 MB, 1.128 blocos) · 55% em 2025 | T19, mesma rodada |
+| Linhas em 2004 | drug **36.324** · reaction **39.435** · duplicate **0** | T19, `metrics.json` |
+| **`safetyreportid` repetidos em 2004** | **6 de 12.000** (11.994 distintos), e os pares **não são idênticos** | T19, Parquet e zip da fonte (L-013, B-004) |
+| Round trip em 2004 | **não roda** — `Tables.load` levanta `BrokenTables` | T19, B-004 |
+| Colunas 2004 ↔ 2025 | `report` 24↔31 · `report_drug` 16↔29 · `report_reaction` 3↔5 · `report_duplicate` 2↔4 | T19, diff dos dois schemas versionados |
+| `activesubstance` em 2004 | **ausente** — o PROJECT a nomeia como entrada da resolução de entidades de M2 | T19, mesmo diff |
+| Cobertura em 2004 | UNII **51,9%** (contra 82,9%) · `drugstartdate` **32,8%** (contra 22,5%) · `companynumb` 89,6% | T19, `metrics.json` |
+| Pico de RSS em 2004 | **211 MB** contra o teto de 500 MB; 9,8 s de parede | T19, `/usr/bin/time -l` |
 
 > ⚠️ Caveat, hardened by **L-006**: per-partition figures come from one partition, `2025q1/drug-event-0001-of-0034` — **which no longer exists.** The 2026-08-10 export chunks 2025q1 into 28 files, not 34. These figures are prior expectations, not reproducible measurements. **T6 through T9 have since re-measured every one of them** against `2025q1/0001-of-0028`: reports 12,000 (matches), drug rows 71,990 and reaction rows 44,916 (both lower), compression 175× rather than 338×. Where the two disagree, the T6–T9 row is the measurement and the spike row is history. The corpus-level rows above (1,767 partitions, 111 GiB, 20,692,690 records) were re-verified against the manifest on 2026-08-13 and hold exactly.
 
