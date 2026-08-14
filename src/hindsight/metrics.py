@@ -10,6 +10,7 @@ from hindsight.normalize import (
     DRUG_TABLE,
     OPENFDA_KEY,
     OPENFDA_TABLE,
+    REPORT_ID,
     REPORT_TABLE,
     TABLES,
 )
@@ -63,6 +64,17 @@ def _unii_coverage(
     return connection.sql(query).fetchone()[0]
 
 
+def _repeated_report_ids(
+    connection: duckdb.DuckDBPyConnection, directory: Path
+) -> int:
+    query = (
+        f"SELECT count(*) - count(DISTINCT {REPORT_ID}) "
+        f"FROM read_parquet({_parquet(directory, REPORT_TABLE)})"
+    )
+
+    return connection.sql(query).fetchone()[0]
+
+
 def snapshot(
     *,
     partition: Partition,
@@ -88,6 +100,7 @@ def snapshot(
         connection, directory, DRUG_TABLE, DRUG_START_DATE, schemas
     )
     with_unii = _unii_coverage(connection, directory, schemas)
+    repeated = _repeated_report_ids(connection, directory)
 
     connection.close()
 
@@ -97,7 +110,7 @@ def snapshot(
         "manifest_records": partition.records,
         "rows": rows,
         "distinct_openfda": written.distinct_openfda,
-        "repeated_report_ids": written.repeated_report_ids,
+        "repeated_report_ids": repeated,
         "bytes": {
             "source_zip": zip_bytes,
             "source_json": json_bytes,

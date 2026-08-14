@@ -10,7 +10,7 @@ from pathlib import Path
 import pyarrow as pa
 import pyarrow.parquet as pq
 
-from hindsight.normalize import REPORT_ID, TABLES, OpenfdaDimension, split
+from hindsight.normalize import TABLES, OpenfdaDimension, split
 from hindsight.schema import Schemas, enforce
 
 
@@ -98,7 +98,6 @@ class Written:
     rows: dict[str, int]
     bytes: int
     distinct_openfda: int
-    repeated_report_ids: int
 
 
 def write_partition(
@@ -106,8 +105,6 @@ def write_partition(
 ) -> Written:
     directory.mkdir(parents=True, exist_ok=True)
     dimension = OpenfdaDimension()
-    identifiers: set[str] = set()
-    repeated = 0
     seen = 0
 
     with ExitStack() as stack:
@@ -119,16 +116,7 @@ def write_partition(
         }
 
         for seen, report in enumerate(reports, start=1):
-            rowset = split(report, dimension)
-            report_id = rowset.report[REPORT_ID]
-
-            if report_id in identifiers:
-                repeated += 1
-                log.warning("safetyreportid repetido: %s", report_id)
-            else:
-                identifiers.add(report_id)
-
-            for table, rows in rowset.by_table().items():
+            for table, rows in split(report, dimension).by_table().items():
                 sinks[table].write(rows)
 
             if seen % REPORTS_PER_ROW_GROUP == 0:
@@ -148,5 +136,4 @@ def write_partition(
         rows={table: sink.rows for table, sink in sinks.items()},
         bytes=sum(sink.path.stat().st_size for sink in sinks.values()),
         distinct_openfda=len(dimension),
-        repeated_report_ids=repeated,
     )

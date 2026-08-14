@@ -58,6 +58,7 @@ class Tables:
     reactions: dict[str, list[dict]]
     duplicates: dict[str, list[dict]]
     openfda: dict[str, dict]
+    ambiguous: frozenset[str] = frozenset()
 
     @property
     def report_ids(self) -> list[str]:
@@ -65,8 +66,11 @@ class Tables:
 
     @classmethod
     def from_rows(cls, rows: dict[str, list[dict]]) -> "Tables":
+        reports, ambiguous = _by_id(rows[REPORT_TABLE])
+
         return cls(
-            reports=_by_id(rows[REPORT_TABLE]),
+            reports=reports,
+            ambiguous=ambiguous,
             drugs=_by_report(rows[DRUG_TABLE]),
             reactions=_by_report(rows[REACTION_TABLE]),
             duplicates=_by_report(rows[DUPLICATE_TABLE]),
@@ -83,25 +87,22 @@ class Tables:
         )
 
 
-def _by_id(rows: list[dict]) -> dict[str, dict]:
+def _by_id(rows: list[dict]) -> tuple[dict[str, dict], frozenset[str]]:
     reports: dict[str, dict] = {}
+    ambiguous: set[str] = set()
 
     for row in rows:
         report_id = row[REPORT_ID]
 
-        if report_id in reports:
-            raise BrokenTables(
-                f"{REPORT_ID} {report_id!r} aparece em duas linhas de "
-                f"{REPORT_TABLE}. As linhas de medicamento e reação das duas "
-                f"chegam misturadas numa lista só, entao não da para dizer qual "
-                f"array pertence a qual relatório — e uma reconstrução que "
-                f"chuta isso passaria no teste sem ser o inverso da escrita. "
-                f"metrics.json conta esses ids em repeated_report_ids."
-            )
+        if report_id in reports or report_id in ambiguous:
+            reports.pop(report_id, None)
+            ambiguous.add(report_id)
+
+            continue
 
         reports[report_id] = row
 
-    return reports
+    return reports, frozenset(ambiguous)
 
 
 def _by_report(rows: list[dict]) -> dict[str, list[dict]]:
@@ -181,6 +182,18 @@ def _duplicates(tables: "Tables", report_id: str) -> dict | list[dict] | None:
 
 
 def reconstruct(tables: Tables, report_id: str) -> dict:
+    if report_id in tables.ambiguous:
+        raise BrokenTables(
+            f"{REPORT_ID} {report_id!r} aparece em mais de uma linha de "
+            f"{REPORT_TABLE}. As linhas de medicamento e reação das duas "
+            f"chegam misturadas numa lista só, entao não da para dizer qual "
+            f"array pertence a qual relatório — e uma reconstrução que chuta "
+            f"isso passaria no teste sem ser o inverso da escrita. Só este "
+            f"relatório é recusado; os outros da partição continuam "
+            f"reconstruíveis, e metrics.json conta os ids em "
+            f"repeated_report_ids."
+        )
+
     row = tables.reports.get(report_id)
 
     if row is None:
