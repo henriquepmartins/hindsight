@@ -1,33 +1,22 @@
-# data/ is a cache, never the source of truth — raw zips and Parquet are
-# re-derivable from a pinned source and are never committed.
-#
-# data/manifest/ is the deliberate exception. Together with schema/, it IS the
-# reproducibility claim: partition id, URL, export date, SHA-256 (AD-008).
-# "Pin, don't hoard" only works if the pins are in git.
 data/*
 !data/manifest/
 data/manifest/*
 !data/manifest/.gitkeep
 !data/manifest/*.json
 
-# Build artifacts
 _site/
 .quarto/
-# Quarto's per-document output. reports/*.qmd is the source and
-# reports/data/*.csv is committed input; the rendered page is neither.
 reports/*.html
 reports/*_files/
 dist/
 *.egg-info/
 
-# Python
 __pycache__/
 *.py[cod]
 .venv/
 .pytest_cache/
 .ipynb_checkpoints/
 
-# macOS
 .DS_Store
 
 /.quarto/

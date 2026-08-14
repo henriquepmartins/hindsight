@@ -4,8 +4,6 @@ on:
   push:
   pull_request:
 
-# A second push to the same branch cancels the first. The suite is seconds long,
-# so this is about not queueing behind a run whose answer nobody wants any more.
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
@@ -21,26 +19,16 @@ jobs:
         with:
           enable-cache: true
 
-      # --frozen, not --locked or a bare sync: CI resolves nothing. If uv.lock
-      # and pyproject.toml disagree, that is a failure to report and not a
-      # difference to paper over on the way to a green tick.
-      - name: Install the pinned environment
+      - name: Instala o ambiente fixado
         run: uv sync --frozen
 
-      # AD-015 says the pipeline does not depend on the chart stack, and this is
-      # what makes that a check rather than a claim. `viz` is not a default
-      # group, so matplotlib must be absent here — if it ever arrives, someone
-      # moved it into `dependencies` and CI started paying for a chart it never
-      # draws.
-      - name: The chart stack is not installed
+      - name: A stack de gráficos não está instalada
         run: |
           if uv run python -c "import matplotlib" 2>/dev/null; then
-            echo "matplotlib is installed in the default environment (AD-015)."
+            echo "matplotlib instalado no ambiente padrão (AD-015)."
             exit 1
           fi
-          echo "ok — no viz group"
+          echo "ok — sem o grupo viz"
 
-      # The default addopts deselect the slow marker, so this runs the committed
-      # fixture and never reaches for the 155 MB partition or the network.
-      - name: Round trip and the rest of the suite
+      - name: Round trip e o resto da suíte
         run: uv run pytest -q

@@ -10,8 +10,6 @@ permissions:
   pages: write
   id-token: write
 
-# One deployment at a time, and a queued one is not cancelled: cancelling a
-# deploy mid-flight is how a site ends up serving half of two renders.
 concurrency:
   group: pages
   cancel-in-progress: false
@@ -33,19 +31,10 @@ jobs:
 
       - uses: quarto-dev/quarto-actions/setup@v2
 
-      # The one place the `viz` group is installed. CI (ci.yml) asserts the
-      # opposite, and both are true: the pipeline does not depend on the chart
-      # stack, and the page does.
-      - name: Install the pinned environment, with charts
+      - name: Instala o ambiente fixado, com gráficos
         run: uv sync --frozen --group viz
 
-      # No `hindsight analyze` here, and that is the trade T17 accepted. The
-      # page reads the committed reports/data/prr_top.csv, so this job needs
-      # neither the 155 MB partition nor the network — and the cost is that a
-      # stale CSV publishes without complaint. `make site` regenerates it
-      # before rendering; the file's header carries the partition, the export
-      # date and the min_count that produced it, so the drift is readable.
-      - name: Render
+      - name: Renderiza
         run: uv run quarto render
 
       - uses: actions/configure-pages@v5

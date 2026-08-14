@@ -1,24 +1,25 @@
 ---
 title: "Hindsight"
-subtitle: "Would this system have flagged real drug safety warnings before the FDA issued them?"
+subtitle: "Este sistema teria sinalizado alertas reais de segurança antes do FDA emiti-los?"
 ---
 
-The FDA's adverse event database holds 20.7 million spontaneous reports. The
-disproportionality statistics regulators screen them with are public, and so is
-the list of safety warnings the FDA has actually issued.
+A base de eventos adversos do FDA guarda 20,7 milhões de relatos espontâneos. As
+estatísticas de desproporcionalidade com que os reguladores os triam são
+públicas, e a lista de alertas de segurança que o FDA de fato emitiu também.
 
-That makes an unusual thing possible: for each real warning, recompute the
-signal using **only the reports that existed before that date**, and measure how
-early it would have fired. The backtest is the point. Everything before it exists
-to make it trustworthy.
+Isso torna possível uma coisa incomum: para cada alerta real, recalcular o sinal
+usando **apenas os relatórios que existiam antes daquela data**, e medir com
+quanta antecedência ele teria disparado. O backtest é o ponto. Tudo que vem
+antes existe para torná-lo confiável.
 
-The misses and the false positives get published beside the hits.
+Os erros e os falsos positivos são publicados ao lado dos acertos.
 
 ## Milestones
 
-**[M0 — Walking skeleton](reports/m0.qmd)** · One partition through every layer.
-The first ranking it produced was contaminated, and measuring how badly is the
-milestone's result.
+**[M0 — Esqueleto ambulante](reports/m0.qmd)** · Uma partição por todas as
+camadas. O primeiro ranking que ela produziu estava contaminado, e medir o
+tamanho da contaminação é o resultado do milestone.
 
-M1 — the full corpus · M2 — entity resolution and deduplication · M3 — signal
-detection · M4 — the backtest · M5 — dataset release. Not yet written.
+M1 — corpus completo · M2 — resolução de entidades e deduplicação · M3 —
+detecção de sinal · M4 — o backtest · M5 — publicação do dataset. Ainda não
+escritos.

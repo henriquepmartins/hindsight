@@ -1,6 +1,6 @@
 ---
-title: "One partition, end to end"
-subtitle: "M0 — walking skeleton"
+title: "Uma partição, de ponta a ponta"
+subtitle: "M0 — esqueleto ambulante"
 format:
   html:
     toc: false
@@ -8,51 +8,52 @@ format:
     code-fold: false
 ---
 
-The FDA's adverse event database holds 20.7 million spontaneous reports, and
-regulators screen them with disproportionality statistics. This milestone pushes
-a single partition — 12,000 reports — through every layer of the pipeline, to
-find out what breaks first.
+A base de eventos adversos do FDA guarda 20,7 milhões de relatos espontâneos, e
+os órgãos reguladores os triam com estatística de desproporcionalidade. Este
+milestone empurra uma única partição — 12.000 relatórios — por todas as camadas
+do pipeline, para descobrir o que quebra primeiro.
 
-## 12,000 reports rebuilt byte for byte
+## 12.000 relatórios reconstruídos byte a byte
 
-The partition arrives as 807 MB of JSON and leaves as 4.6 MB of Parquet, 175×
-smaller, with every field kept. That nothing was lost is not an assertion: the
-tables are read back, the nested source document is reconstructed from them, and
-all 12,000 come back byte-identical.
+A partição chega com 807 MB de JSON e sai com 4,6 MB de Parquet, 175× menor, com
+todos os campos preservados. Que nada se perdeu não é afirmação: as tabelas são
+relidas, o documento aninhado original é reconstruído a partir delas, e os
+12.000 voltam idênticos byte a byte.
 
-The test that proves it was itself checked. An earlier version stripped nulls
-from both documents before comparing, which would have hidden any real
-difference behind a passing count. The source carries zero explicit nulls —
-measured, every value at every depth — so the comparison is one-sided and means
-what it says.
+O teste que prova isso foi ele próprio verificado. Uma versão anterior removia
+nulos dos dois documentos antes de comparar, o que esconderia qualquer diferença
+real atrás de uma contagem que passa. A fonte não carrega nenhum nulo explícito —
+medido, valor por valor, em toda profundidade — então a comparação é unilateral e
+significa o que diz.
 
-## The ranking is arithmetically right and clinically absurd
+## O ranking está aritmeticamente certo e clinicamente absurdo
 
-PRR over a 2×2 of distinct reports, artifact terms excluded, three co-reports
-minimum. The first row is nail fungus on a buprenorphine patch. Recomputed by
-hand: a = 9, b = 9, c = 1, d = 11,981, summing to exactly 12,000. The query is
-correct and the answer is nonsense.
+PRR sobre uma tabela 2×2 de relatórios distintos, termos de artefato excluídos,
+mínimo de três co-relatos. A primeira linha é micose de unha num adesivo de
+buprenorfina. Recalculado à mão: a = 9, b = 9, c = 1, d = 11.981, somando
+exatamente 12.000. A consulta está certa e a resposta é absurda.
 
-The screening criterion does not rescue it. Evans keeps 85% of pairs, and every
-implausible one clears it comfortably — χ² is *large* precisely because the
-expected count is 0.015. No threshold separates a duplicate from a signal.
+O critério de triagem não salva. Evans mantém 85% dos pares, e todo par
+implausível passa com folga — o χ² é *grande* justamente porque a contagem
+esperada é 0,015. Nenhum limiar separa uma duplicata de um sinal.
 
-**Limitations.** One partition. No entity resolution, so `INFLIXIMAB` and
-`REMICADE` are different drugs. No deduplication. Three co-reports minimum.
-Disproportionate reporting is not causation.
+**Limitações.** Uma partição. Sem resolução de entidades, então `INFLIXIMAB` e
+`REMICADE` são medicamentos diferentes. Sem deduplicação. Mínimo de três
+co-relatos. Reporte desproporcional não é causalidade.
 
-## 1% of the reports manufacture two thirds of the pairs
+## 1% dos relatórios fabrica dois terços dos pares
 
-A report naming 90 drugs and 10 events asserts 900 drug–event pairs. This
-partition's median report names two, and its 99th percentile names 27. The 125
-reports above that line supply the evidence for 18,946 of the 28,540 pairs.
+Um relatório que nomeia 90 medicamentos e 10 eventos afirma 900 pares
+medicamento–evento. Nesta partição o relatório mediano nomeia dois, e o
+percentil 99 nomeia 27. Os 125 relatórios acima dessa linha sustentam a
+evidência de 18.946 dos 28.540 pares.
 
 ```{python}
-#| label: fig-crowding
-#| fig-cap: "Every drug–event pair reaching three co-reports, against how many drugs the reports behind it name. The ratio climbs with the width of the document."
+#| label: fig-lotacao
+#| fig-cap: "Todos os pares medicamento–evento com pelo menos três co-relatos, contra quantos medicamentos os relatórios por trás deles nomeiam. A razão sobe com a largura do documento."
 #| echo: true
 #| code-fold: true
-#| code-summary: "the plotting code"
+#| code-summary: "o código do gráfico"
 
 import matplotlib.pyplot as plt
 import pandas
@@ -61,48 +62,48 @@ import seaborn
 
 seaborn.set_theme(style="darkgrid")
 
-pairs = pandas.read_csv("data/prr_top.csv", comment="#")
+pares = pandas.read_csv("data/prr_top.csv", comment="#")
 
-ordinary = pairs[pairs.crowded == 0]
-crowded = pairs[pairs.crowded == 1]
-
-
-figure, axes = plt.subplots(figsize=(8.4, 5.2))
-
-axes.scatter(ordinary.crowding, ordinary.prr,
-             s=7, alpha=0.25, linewidths=0, color="#0072B2")
-
-axes.scatter(crowded.crowding, crowded.prr,
-             s=7, alpha=0.25, linewidths=0, color="#D55E00")
-
-axes.axvline(27, color="#3C3C3C", linewidth=1.1, linestyle=(0, (5, 4)))
+comuns = pares[pares.crowded == 0]
+lotados = pares[pares.crowded == 1]
 
 
-axes.text(24, 2.2e4, "99th percentile", color="#3C3C3C", fontsize=9, ha="right")
+figura, eixos = plt.subplots(figsize=(8.4, 5.2))
 
-axes.text(3.2, 3.5e3, f"{len(ordinary):,} pairs\nfrom ordinary reports",
-          color="#0072B2", fontsize=10.5)
+eixos.scatter(comuns.crowding, comuns.prr,
+              s=7, alpha=0.25, linewidths=0, color="#0072B2")
 
-axes.text(30, 0.22, f"{len(crowded):,} pairs\nfrom 125 reports",
-          color="#D55E00", fontsize=10.5)
+eixos.scatter(lotados.crowding, lotados.prr,
+              s=7, alpha=0.25, linewidths=0, color="#D55E00")
+
+eixos.axvline(27, color="#3C3C3C", linewidth=1.1, linestyle=(0, (5, 4)))
 
 
-axes.set_xscale("log")
-axes.set_yscale("log")
-axes.set_xlim(0.9, 130)
-axes.set_ylim(0.08, 4e4)
-axes.set_xlabel("distinct drugs named by the reports behind the pair")
-axes.set_ylabel("proportional reporting ratio")
+eixos.text(24, 2.2e4, "percentil 99", color="#3C3C3C", fontsize=9, ha="right")
+
+eixos.text(3.2, 3.5e3, f"{len(comuns):,} pares\nde relatórios comuns".replace(",", "."),
+           color="#0072B2", fontsize=10.5)
+
+eixos.text(30, 0.22, f"{len(lotados):,} pares\nde 125 relatórios".replace(",", "."),
+           color="#D55E00", fontsize=10.5)
+
+
+eixos.set_xscale("log")
+eixos.set_yscale("log")
+eixos.set_xlim(0.9, 130)
+eixos.set_ylim(0.08, 4e4)
+eixos.set_xlabel("medicamentos distintos nomeados pelos relatórios por trás do par")
+eixos.set_ylabel("razão de reporte proporcional")
 
 plt.show()
 ```
 
-Nine of those 125 are one case. All Canadian, all serious, filed within three
-months by six different manufacturers, drug lists overlapping at a Jaccard
-median of 0.48 — and two of them share a company number and an identical
-ten-term reaction list.
+Nove desses 125 são um caso só. Todos canadenses, todos graves, registrados em
+três meses por seis fabricantes diferentes, com listas de medicamentos se
+sobrepondo a uma mediana de Jaccard de 0,48 — e dois deles compartilham um
+número de empresa e uma lista idêntica de dez reações.
 
-Remove the crowded pairs and the top of the table changes character: risperidone
-and gynaecomastia, a documented prolactin effect. One pair is not a finding. It
-is the first sign that the method works once the input is clean, and cleaning
-the input is the next milestone.
+Removidos os pares lotados, o topo da tabela muda de natureza: risperidona e
+ginecomastia, um efeito de prolactina documentado. Um par não é um achado. É o
+primeiro sinal de que o método funciona quando a entrada está limpa, e limpar a
+entrada é o próximo milestone.
