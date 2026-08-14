@@ -23,8 +23,8 @@
 **Normalize slice** — PLANNED
 - Split into fact tables (`report`, `report_drug`, `report_reaction`) + dimension (`openfda`, keyed by content hash)
 - Write partitioned Parquet
-- **Round-trip test in CI** — reconstruct source JSON from the tables, assert byte-identical, fail the build otherwise. Already passing 12,000/12,000 in the spike (L-005); it must stay passing on one partition per era
-- Compression already proven on a 2025 partition (338× lossless, ~3.4 GB projected — see L-003). M0 re-runs it on a **2005-era** partition, where `openfda` enrichment is expected to be sparser and the ratio worse
+- **Round-trip test in CI** — reconstruct source JSON from the tables, assert byte-identical, fail the build otherwise. Passing 12,000/12,000 on the whole partition (T10) and on the committed ~100-report fixture that CI runs. The **per-era** cadence is a scheduled M1 job with a named owner, not a property of the push CI (AD-019)
+- Compression measured on a 2025 partition: **175× lossless** (T9, ~3.4–3.7 GB projected). The 338× in L-003 came from a partition the current export no longer contains (L-006) and is history, not a baseline. M0 re-runs it on an **early-era** partition — 2004q1 onward, since openFDA does not start at 2005 — where `openfda` enrichment is expected to be sparser and the ratio worse
 - Add the MedDRA exclusion list for reporting artifacts (`Off label use`, `Condition aggravated`, …) before computing anything — see L-004
 
 **Query + one finding** — PLANNED
@@ -36,29 +36,57 @@
 
 ---
 
-## M1 — Full Corpus (~36 h)
+## M1 — Corpus completo (~44 h)
 
-**Goal:** All 20.7M reports ingested, normalized, and refreshing on a schedule without supervision.
+**Objetivo:** os 20,7M relatos ingeridos, normalizados e se atualizando em agenda sem supervisão.
+
+> Reescrito em 14/08/2026 pela revisão de arquitetura. O M1 anterior descrevia intenções que o M0 já tinha resolvido de outro jeito — ver AD-017 a AD-022. As ~8 h a mais são o custo de fechar isso.
 
 ### Features
 
-**Resumable crawler** — PLANNED
-- All 1,767 partitions, checkpointed and restartable mid-run
-- Respect openFDA politeness; measured throughput was ~11.6 MB/s, so ~2.7 h of pure transfer
-- Stream → transform → discard: the 111 GB is never all on disk at once
+**Alvo de armazenamento remoto** — PLANEJADA · *primeira tarefa, antes da crawler* (AD-018)
+- Confirmar AD-012 (Hugging Face Datasets favorito, R2 segundo, B2 terceiro) e escrever a decisão
+- Uma crawler que escreve em disco local e depois migra é reescrita, não configuração — por isso vem antes
 
-**Schema drift handling** — PLANNED
-- FAERS field layouts have changed since 2004; detect and record every drift event rather than crashing on it
-- Drift events become a published data-quality artifact, not a hidden hack
+**Era, medida a partir do manifesto** — PLANEJADA (AD-017)
+- Uma **era** é um intervalo contíguo de buckets com o mesmo conjunto de caminhos de campo, descoberto pela passagem 1 e gravado em `schema/<era>.json`
+- Não é uma década escolhida no papel: uma fronteira escrita à mão seria mais uma constante medida numa partição e aplicada a 2004–2025, que é o erro de L-006
+- T19 é o protótipo manual disso, feito uma vez à mão antes de virar mecanismo
 
-**Scheduled refresh** — PLANNED
-- GitHub Actions cron; incremental — only new/changed partitions
-- openFDA `download.json` carries an export date; use it as the change signal
+**Crawler retomável, uma era por vez** — PLANEJADA (AD-018)
+- As 1.767 partições, com checkpoint e reinício no meio da rodada
+- Respeitar a educação com o openFDA; a vazão medida foi ~11,6 MB/s, ~2,7 h de transferência pura
+- **Os zips de uma era ficam em disco entre a passagem 1 e a passagem 2, e são descartados ao fechar a era.** A passagem 1 precisa varrer todas as partições da era antes que a passagem 2 escreva qualquer uma; a alternativa é baixar tudo duas vezes (~5,4 h)
+- **Medir o tamanho da maior era pelo manifesto antes de rodar** — é o pico de disco do milestone e hoje ninguém sabe qual é
 
-**Data-quality metrics** — PLANNED
-- Row counts, null rates, drift events, freshness lag — computed every run, stored as a time series
+**Drift que registra e põe de quarentena** — PLANEJADA (AD-017)
+- Campo que o schema da era não tem → registra o evento, põe a partição de quarentena, segue
+- Não escreve, não alarga o schema sozinho, não derruba o crawl. `UnknownField` continua sendo o gatilho; muda quem o pega
+- Os eventos de drift e a fila de quarentena viram artefato público de qualidade, não remendo escondido
 
-**Exit criteria:** the full corpus rebuilds unattended, and the quality metrics are queryable over time.
+**Round trip por era, em agenda** — PLANEJADA (AD-019)
+- Uma partição por era, em job agendado, separado do CI de push — que continua no fixture de ~100 relatos
+- A página diz **quais eras foram verificadas e quando**. Sem isso "byte-identical" tem alcance presumido em vez de declarado
+- É o job mais caro do projeto: `Tables.load` segura uma partição inteira em dicts Python (266 MB para 4,62 MB de Parquet, T10). Sequencial, dentro do teto de 500 MB por partição
+
+**Refresh agendado** — PLANEJADA
+- Cron no GitHub Actions; incremental — só partições novas ou alteradas
+- O `download.json` do openFDA carrega uma data de export; ela é o sinal de mudança
+- Reparticionamento não é mudança de conteúdo: um id que some do manifesto é evento registrado, não erro (L-006)
+
+**Métricas de qualidade** — PLANEJADA
+- Contagens de linha, taxas de nulo, eventos de drift, fila de quarentena, `repeated_report_ids`, atraso de frescor — calculadas a cada rodada, guardadas como série temporal
+- `metrics.json` por partição já tem o formato; M1 empilha
+
+**Medir a query da G1** — PLANEJADA (AD-021)
+- Contagem de pares medicamento-evento distintos sobre o corpus inteiro, com a lista de exclusão aplicada, e o número publicado seja ele qual for
+- Depende de `prr._directory` ganhar um caminho multi-partição: hoje ele recusa mais de uma partição, e a recusa é o que impede a medida de existir
+- O `<5 s` da G1 é expectativa prévia até essa medição, não critério
+
+**Revisar a lista de exclusão** — PLANEJADA
+- Como o próprio cabeçalho dela promete: foi curada contra uma partição e é um piso, não uma enumeração
+
+**Critérios de saída:** o corpus completo se reconstrói sem supervisão; as métricas de qualidade são consultáveis ao longo do tempo; a fila de quarentena e as eras verificadas pelo round trip estão publicadas; e a query da G1 tem um número medido.
 
 ---
 
