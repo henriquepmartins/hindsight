@@ -75,7 +75,7 @@ Five tables. `safetyreportid` is the join key throughout.
 > Four of them were designed up front. `report_duplicate` was added by AD-013 after T9 measured the field arriving in two shapes, and this section was corrected only once that decision was taken — not when the code started writing it.
 
 **`report`** — one row per report
-- `safetyreportid` (string) — **not a primary key.** T19 found 6 repeated ids in 12,000 in `2004q1/0001-of-0005`, and the two sides of each pair are different submissions, not the same report twice (L-013). Ingestion counts them into `repeated_report_ids` and keeps both; reconstruction refuses the partition. Giving `report` a surrogate key is the open decision in B-004
+- `safetyreportid` (string) — **not a primary key.** T19 found 6 repeated ids in 12,000 in `2004q1/0001-of-0005`, and the two sides of each pair are different submissions, not the same report twice (L-013). `metrics.json` counts them as `repeated_report_ids`, measured over the written Parquet like every other number there, and both rows are kept; `reconstruct` refuses **those reports by name** and leaves the rest of the partition reconstructible. Giving `report` a surrogate key is the open decision in B-004
 - every top-level field except `patient`
 - every `patient` scalar/struct field except `drug` and `reaction`, prefixed `pt_`
 
