@@ -1,4 +1,5 @@
 import json
+import os
 from pathlib import Path
 
 import pytest
@@ -10,16 +11,40 @@ from hindsight.roundtrip import (
     UnknownReport,
     reconstruct,
 )
-from hindsight.schema import infer
+from hindsight.schema import SCHEMA_DIR, infer
 from hindsight.stream import iter_reports
-from hindsight.write import write_partition
+from hindsight.write import PARQUET_DIR, partition_dir, write_partition
 
 
 FIXTURE = Path(__file__).parent / "fixtures" / "sample_100.json"
 
 
-PARTITION_ZIP = Path("data/raw/2025q1-0001-of-0028.zip")
-PARTITION_PARQUET = Path("data/parquet/year=2025/quarter=1/part=0001-of-0028")
+RAW_DIR = Path("data/raw")
+
+
+def artifacts_of(partition_id: str) -> tuple[Path, Path, Path]:
+    stem = partition_id.replace("/", "-")
+
+    return (
+        RAW_DIR / f"{stem}.zip",
+        PARQUET_DIR / partition_dir(partition_id),
+        SCHEMA_DIR / f"{stem}.json",
+    )
+
+
+def requested_partitions() -> list[str]:
+    return [p.strip() for p in os.environ.get("PARTITION", "").split(",") if p.strip()]
+
+
+def ingested_partitions() -> list[str]:
+    return sorted(
+        json.loads(path.read_text())["partition"]
+        for path in PARQUET_DIR.rglob("metrics.json")
+    )
+
+
+def partitions_under_test() -> list[str]:
+    return requested_partitions() or ingested_partitions()
 
 
 def canonical(value: object) -> str:
@@ -303,19 +328,31 @@ def test_a_drug_pointing_at_a_missing_block_raises(sample):
 
 
 @pytest.mark.slow
-def test_the_whole_partition_rebuilds_from_parquet():
-    if not (PARTITION_ZIP.exists() and (PARTITION_PARQUET / "report.parquet").exists()):
-        pytest.skip(f"needs {PARTITION_ZIP} and a completed ingest into {PARTITION_PARQUET}")
+@pytest.mark.parametrize("partition_id", partitions_under_test())
+def test_the_whole_partition_rebuilds_from_parquet(partition_id):
+    archive, parquet, schema_path = artifacts_of(partition_id)
 
-    tables = Tables.load(PARTITION_PARQUET)
+    missing = [
+        path
+        for path in (archive, parquet / "report.parquet", schema_path)
+        if not path.exists()
+    ]
+    assert not missing, (
+        f"{partition_id}: falta {', '.join(str(path) for path in missing)}. "
+        f"Rode `make ingest PARTITION={partition_id}` antes."
+    )
+
+    declared = json.loads(schema_path.read_text())["source"]["records"]
+
+    tables = Tables.load(parquet)
     compared = mismatched = 0
     first_failure = ""
 
-    for source in iter_reports(PARTITION_ZIP):
+    for source in iter_reports(archive):
         compared += 1
         assert not explicit_nulls(source), (
-            f"report {source['safetyreportid']} carries an explicit null — the "
-            f"round-trip comparison's meaning changes here (L-008)"
+            f"{partition_id}: o relato {source['safetyreportid']} carrega um null "
+            f"explicito — o sentido da comparacao do round trip muda aqui (L-008)"
         )
 
         found = differences(source, reconstruct(tables, source["safetyreportid"]))
@@ -326,10 +363,16 @@ def test_the_whole_partition_rebuilds_from_parquet():
                 f"safetyreportid {source['safetyreportid']}: {found[:10]}"
             )
 
-    print(f"\n{compared - mismatched:,}/{compared:,} byte-identical")
+    print(f"\n{partition_id}: {compared - mismatched:,}/{compared:,} byte-identical")
 
-    assert mismatched == 0, f"{mismatched:,} of {compared:,} differ. First: {first_failure}"
-    assert compared == 12000
+    assert mismatched == 0, (
+        f"{partition_id}: {mismatched:,} de {compared:,} diferem. "
+        f"Primeiro: {first_failure}"
+    )
+    assert compared == declared, (
+        f"{partition_id}: li {compared:,} relatos do zip, "
+        f"e o manifesto fixado declara {declared:,}"
+    )
 
 
 def tables_with_report_ids(*identifiers: str) -> Tables:

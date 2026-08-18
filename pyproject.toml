@@ -43,5 +43,5 @@ testpaths = ["tests"]
 # `-m slow` on the command line overrides this and selects the other half.
 addopts = "-m 'not slow'"
 markers = [
-    "slow: needs the 155 MB partition and a completed ingest. Local only — CI runs the committed fixture instead (T11)",
+    "slow: precisa dos zips e de uma ingestao completa. Roda uma vez por particao em PARTITION, ou por todas as ingeridas quando PARTITION nao esta definida. Local — a CI roda o fixture versionado no lugar (T11)",
 ]
