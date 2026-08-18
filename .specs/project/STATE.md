@@ -1,13 +1,21 @@
 # State
 
-**Last Updated:** 2026-08-14
+**Last Updated:** 2026-08-18
 **Current Work:** M0 — Walking Skeleton. T1–T12 done: repo initialized, dependencies pinned, Makefile skeleton, partition resolver, pinned resumable downloader, streaming report iterator, openfda dimension writer, record splitter, schema inference + Parquet sink, round-trip reconstructor, round-trip test, MedDRA exclusion list. **AD-013 is decided** — five tables, and a null `seq` on `report_duplicate` means the source carried a bare object. **The round trip closes and is now defended: 12,000 / 12,000 byte-identical, plus 13 tests over a committed 100-report fixture that CI can run without the partition.** Phase 3, the core of M0, is finished, and T12 curated 187 exclusion terms that clear the top of the ranking — what surfaces underneath is infliximab → sepsis, a real anti-TNF warning. **T12 also found the trap T13 walks into: one report carries 2,321 drug rows, and the naive join inflates the pair counts 2.2× (L-009).** T13 is written: PRR and χ² over a 2×2 of **distinct reports**, Evans as the screening criterion (AD-014), 0.13 s over the partition. **Its eye-check failed, and the failure is the milestone's finding — the top of the table is nine near-duplicate reports of one Canadian patient on ~90 drugs, and neither `drugcharacterization` nor Evans removes it (L-010).** T13 is committed. **T14 is done and it enlarged the finding (L-011): the nine duplicate reports are not a cluster to route around — 125 reports of 12,000, 1.04%, supply 66.4% of the whole pair table.** Three notebooks record the analyses that actually ran, `reports/m0.qmd` publishes that in 370 words and one chart, and `hindsight analyze --csv` writes the committed table the page reads. **T15 is done too** — `_quarto.yml` + `index.qmd`, light theme with no toggle, per-milestone navbar, the disclaimer in every footer, and `make site` regenerating the CSV before rendering so a stale page takes deliberate effort. **T16 is done** — CI green in 30 s, and its first run immediately caught the one dependency rule this milestone had just written down being broken (L-012). **T17 está commitado** (`ci: publish site to GitHub Pages`); falta confirmar a URL viva.
 
 **Uma revisão de arquitetura em 14/08 fechou o M1 no papel antes de T19 fechar o M0** — AD-017 a AD-022. Quatro dos seis achados eram a mesma coisa: uma promessa do PROJECT/ROADMAP que o M0 resolveu de um jeito deliberadamente estreito e correto, e que nenhum milestone assumia de volta na largura prometida. Dois já foram implementados e verificados: **`repeated_report_ids` no `metrics.json` com o round trip recusando o id ambíguo** (AD-020, medido 0 de 12.000) e a **guarda de procedência da página no CI** (AD-022). O `make test` deixou de ser um stub que saía 1, então `make all` roda de ponta a ponta pela primeira vez. Suíte em **202 testes, 1,6 s**.
 
 **T17, T18 e T19 fecharam em 14/08 e o M0 está completo.** O site está no ar e público. `make all` num clone limpo leva **47,4 s** com pico de **324,5 MB**, e o CSV que ele escreve é byte-idêntico ao versionado — a página é verificável, não confiável. O row group fica em 2.000, agora com os três pontos medidos.
 
+**A M1 foi decomposta em 16/08/2026** — `.specs/features/m1-corpus-completo/` com spec (24 requisitos), design e 29 tasks em cinco fases. Três coisas saíram da decomposição e não estavam em lugar nenhum. Primeira: **o ROADMAP da M1 se referencia em círculo** — era é descoberta pela passagem 1, mas a passagem 1 é escopada por era; o pico de disco é o tamanho da maior era, e as eras não são conhecidas antes de medir. O design resolve com três fases sobre o corpus (varredura → mapa de eras → colheita) em vez de duas passagens sobre uma era, e o preço é honesto: o corpus é transferido duas vezes, ~5,4 h, que é exatamente o custo que AD-018 rejeitou. Segunda: **o drift não tem quando acontecer na colheita inicial** — se a varredura leu todas as partições da era, o schema congelado contém todo campo que a era tem, e `UnknownField` só pode disparar no refresh. AD-017 não diz isso. Terceira, e é a que abre **B-006**: a `dim_openfda` é deduplicada por partição.
+
 **T19 é a que mudou o projeto.** A partição mais antiga do export comprime 78,8× e mesmo assim sai *menor* que a de 2025, então a projeção de corpus desce para 1,7–3,6 GB. E ela carrega **6 `safetyreportid` repetidos em 12.000**, que não são o mesmo relato duas vezes — o que abre **B-004**: o round trip não roda na era antiga, e `safetyreportid` deixou de poder ser chamado de PK. Próxima ação: **decidir B-004** antes de M1 ligar o job por era de AD-019.
+
+**Uma revisão de arquitetura independente da decomposição da M1 rodou em 18/08 e pediu mudanças** — 9 bloqueantes e 7 importantes. Três dos bloqueantes são o mesmo defeito: número propagado entre documentos sem ninguém reabrir o dado. `patient.drug: null` não existe (o caminho com 1.375 ocorrências é `patient.drug[].drugtreatmentdurationunit`), as chaves da `dim_openfda` nunca foram locais, e `receiver` não mudou de tipo entre eras — é sempre-nulo em 2004 e o sentinela do `schema` o escreve como `"string"`, o que faz a regra de fronteira de era fechar era por ruído. **A decomposição não deve ser implementada como está**, e as quatro tasks de decisão (T1, T3, T7, T8) precisam remedir antes de escrever seus ADs.
+
+**Duas coisas foram consertadas em 18/08, na ordem que a revisão pediu.** Primeira: **o arnês do round trip** tinha a partição de 2025 fixa no arquivo de teste, então o Verify que iterava as duas eras rodava 2025 duas vezes, e artefato ausente virava `pytest.skip` — o portão do milestone não podia falhar. Agora é parametrizado por partição, o nome do caso carrega o id, e artefato faltando é falha. Consequência registrada em **B-007**: `make all` fica vermelho até a T4. Segunda: **o repin**. O openFDA reescreveu as duas partições fixadas em oito dias (**L-014**), os bytes de 10/08 não existem mais, e `ensure_local` nunca comparava o pin com o export publicado — rodava feliz sobre bytes velhos. `StalePin` e `--repin` fecham o mecanismo (**AD-027**); as duas partições foram reingeridas contra o export de 17/08 e **quase todo número do M0 mudou** (**L-015**).
+
+**Próxima ação:** decidir se `reports/m0.qmd` é reescrito contra o export novo. O topo da tabela deixou de ser absurdo — é `HYDRALAZINE` → vasculite ANCA-positiva, uma associação real — e a seção que se chama "aritmeticamente certo e clinicamente absurdo" perdeu o exemplo. Depois disso, a T1.
 
 ---
 
@@ -237,6 +245,22 @@ Em M0 — um gráfico, um CSV, tudo commitado junto — o risco é pequeno. O re
 
 ---
 
+### AD-027: pin obsoleto é recusado por nome, e mover de export é um ato explícito (2026-08-18) — IMPLEMENTADO
+
+> Numerada 027 de propósito: 023 a 026 estão reservadas para as quatro tasks de decisão da M1 (`.specs/features/m1-corpus-completo/design.md`), que ainda não foram escritas aqui.
+
+**Decisão:** `fetch.ensure_local` compara o `export_date` do pin gravado com o `export_date` que o `resolve()` acabou de ler do manifesto vivo. Divergiu, levanta `StalePin` e não faz nada. Mover a partição para o export corrente exige `--repin`, que existe em `hindsight fetch` e em `hindsight ingest`, apaga o zip cacheado, baixa limpo sem retomada, grava o pin novo e implica `--reinfer`.
+
+**Razão:** o guarda que existia comparava o zip em cache contra o **pin**, nunca contra o export publicado. Os dois batiam, então `hindsight ingest` rodava feliz sobre bytes de uma semana antes e nada falhava onde alguém olhava. É a forma exata de L-012, e a revisão de arquitetura da M1 a encontrou como o achado mais caro dela.
+
+**Trade-off:** uma partição parada num export antigo passa a exigir uma flag para andar, e a flag carrega uma consequência que nenhum comando consegue executar por você — remedir. `--repin` implica `--reinfer` porque o schema congelado descreve os bytes antigos, mas ele não sabe reescrever um número que mora numa frase do relatório.
+
+**Alternativa rejeitada:** *repinar sozinho quando o export muda.* Silencioso na direção oposta: o corpus andaria de export sem ninguém decidir, e todo número medido viraria falso sem aviso.
+
+**Impacto:** fecha o achado 1 da revisão no nível do mecanismo. **Não fecha no nível do plano** — a M1 leva semanas e o export rotaciona em dias, então falta a regra de que um export novo invalida o mapa de eras em vez de continuá-lo. Isso é decisão da Fase 2 da M1 e ainda não está escrita.
+
+---
+
 ## Active Blockers
 
 ### ~~B-001: Parquet compression ratio is estimated, not measured~~ — RESOLVED 2026-08-11
@@ -284,7 +308,27 @@ Ela não transferiu. Medido agora com o guarda por relatório em vigor: dos 12.0
 
 **Resolver antes de:** M1 ligar o job por era de AD-019, junto com B-004. Este é o que decide se ele tem o que provar; B-004 decide de quantos relatórios.
 
+### B-006: a `dim_openfda` é deduplicada por partição, então ela multiplica em vez de convergir — ABERTO 2026-08-16
+
+> **Remedido em 18/08/2026 após o repin (L-015): 872 de 1.197, 72,8%, projeção ~3,60 GB.** As três afirmações que sustentam o bloqueador continuam de pé — a chave já é global, só a escrita é por partição, e a dimensão sozinha come a maior parte do orçamento da G1. A revisão de arquitetura da M1 acrescentou duas coisas que esta entrada não tem: a razão que a AD-024 usa para rejeitar a compactação posterior é falsa (não existem chaves locais), e uma dimensão global em memória custa ~10 KB por bloco, o que a torna incompatível com o teto de 500 MB e com o round trip. Ver os achados 2, 3 e 4 da revisão.
+
+**Descoberto:** decomposição da M1, ao dimensionar o corpus com a dimensão contada e não só os fatos.
+
+**O fato:** a chave da dimensão já é global por construção — 16 dígitos do SHA-1 do bloco em JSON canônico, então dois blocos idênticos em partições diferentes geram a mesma chave. **Só a escrita é por partição:** `write_partition` cria uma `OpenfdaDimension` nova a cada chamada e cada diretório recebe seu próprio `dim_openfda.parquet`. A ARCHITECTURE já dizia isso em letras — "a deduplicação é interna à partição, não de corpus" — sem que ninguém tivesse multiplicado o número por 1.767.
+
+**A medição, sobre as duas partições ingeridas:** 2004 tem 1.128 blocos, 2025 tem 2.251, a interseção é **866** e a união **2.513**. Ou seja **76,8% da dimensão de 2004 é redundante contra uma partição 21 anos depois** — e essas são as duas partições mais distantes que o corpus tem. Entre partições adjacentes a sobreposição só pode ser maior.
+
+**O que custa:** ~2,1 MB por partição × 1.767 ≈ **3,7 GB só de dimensão**, contra a projeção de 1,7–3,6 GB de fatos de L-013. Total 5,4–7,3 GB. **A G1 promete `< 5 GB` e não sobrevive a isso.** L-003 dizia que a dimensão "converge em vez de multiplicar, porque os mesmos medicamentos recorrem em toda partição" — a afirmação está certa sobre o *conteúdo* e errada sobre o *código*, que nunca a implementou.
+
+**O que ajuda:** `dim_openfda` tem as **mesmas 19 colunas em 2004 e em 2025**, conferido nos dois schemas versionados. É a única das cinco tabelas cuja forma não depende da era, o que torna uma dimensão única sobre o corpus segura por schema.
+
+**A decisão que falta:** dimensão global, por era, ou por partição com mais espaço. A proposta do design da M1 é AD-024, global, com a colheita mantendo em memória só o conjunto de chaves já vistas — e quantas chaves o corpus tem é a incógnita que dimensiona esse `set`, medida na varredura antes de a colheita começar.
+
+**Resolver antes de:** a colheita da M1. Uma colheita de 1.767 partições escrita contra uma dimensão por partição não é uma colheita a corrigir depois, é uma colheita a refazer. Task **T8** da M1.
+
 ### B-004: `safetyreportid` não identifica um relato na era antiga — ABERTO 2026-08-14
+
+> **Remedido em 18/08/2026 após o repin (L-015): são 3 ids repetidos em 12.000, não 6.** O bloqueador não muda de natureza — `safetyreportid` continua sem identificar um relato na era antiga — mas todo número desta entrada é do export de 10/08 e vale para bytes que não existem mais. Os 6 pares descritos abaixo precisam ser reexaminados contra o export de 17/08 antes de a T1 escrever a AD-025.
 
 **Descoberto:** T19, na primeira partição fora de 2025 que o pipeline viu.
 **Impacto:** **12 relatórios de `2004q1/0001-of-0005` são irreconstruíveis** — 6 ids, dois documentos cada. `reconstruct` os recusa por nome e os outros 11.988 seguem reconstruíveis; a versão inicial deste guarda recusava a partição inteira, o que foi corrigido na revisão do PR. Contradiz `design.md`, que chamava `safetyreportid` de PK do `report`.
@@ -301,6 +345,20 @@ Ela não transferiu. Medido agora com o guarda por relatório em vigor: dos 12.0
 - *Deduplicar na ingestão.* Descartado à partida: decide M2 na ingestão, e os dois documentos não são iguais.
 
 **Resolver antes de:** M1 ligar o job de AD-019, junto com B-005. Até lá, "byte-identical" é propriedade das eras medidas, não do corpus, e é assim que precisa aparecer na página.
+
+### B-007: `make all` reprova enquanto a B-005 estiver aberta — ABERTO 2026-08-18, por decisão
+
+**Descoberto:** ao consertar o arnês do round trip, que tinha a partição de 2025 fixa no arquivo de teste e por isso rodava a mesma era duas vezes quando o Verify pedia duas (achado 5 da revisão de arquitetura da M1).
+
+**O fato:** com o arnês parametrizado, `make all` descobre as partições ingeridas e testa todas. Em `2004q1/0001-of-0005` o round trip para no primeiro relato, na precondição de null explícito — `report.receiver` é null nos 12.000 relatos da partição. **Uma verde, uma vermelha.** O arnês antigo dizia duas verdes rodando 2025 duas vezes.
+
+**Isto não é regressão.** É a B-005 aparecendo pela primeira vez num comando que alguém roda. O teste recusa em vez de mentir, que é o desenho funcionando (T11).
+
+**A decisão, tomada em 18/08:** deixar vermelho. As alternativas eram `make all` passar `PARTITION` explicitamente — o que reintroduz de forma declarada o "o default esconde 2004" que o achado 5 acabou de abrir — e marcar 2004 como `xfail`, que fica verde hoje e vira mentira na direção oposta no dia em que a T4 consertar e ninguém tirar a marca. Vermelho é a única em que o que aparece na tela e o estado do projeto são a mesma coisa. É o padrão nº 2 do README aplicado ao próprio build.
+
+**Consequência para a página:** a afirmação de que `make all` reproduz a cadeia inteira num clone limpo passa a ter escopo — ela vale para a era de 2025 e não para o corpus. Precisa aparecer assim onde estiver escrita.
+
+**Resolver:** T4 da M1, que é quem distingue ausente de explicitamente nulo. Fecha junto com B-005.
 
 ### ~~B-003: `pyarrow` / `duckdb` not installed locally~~ — RESOLVED 2026-08-13
 
@@ -508,6 +566,58 @@ Os seis pares **não são o mesmo relato duas vezes.** Conferidos contra o zip d
 **Fronteira de era, que é o que AD-017 precisava:** 24 contra 31 colunas em `report`, 16 contra 29 em `report_drug`, três structs de forma diferente. 2004 e 2025 não são a mesma era por nenhum critério, e o diff de campos é evidência utilizável em vez de uma década escolhida no papel.
 
 **Previne:** dimensionar M1 por uma partição de 2025 e descobrir na partição 900 que o identificador não identifica. Também previne o erro mais caro que estava armado: publicar "byte-identical" como propriedade do corpus quando ela é, hoje, propriedade das eras em que ninguém reusou um id.
+
+### L-014: O openFDA reescreve uma partição no lugar em 8 dias, e o pin detecta sem recuperar
+
+**Medido em 18/08/2026**, ao conferir o achado 1 da revisão de arquitetura da M1. O manifesto vivo publicava `export_date: 2026-08-17`; os pins do M0 diziam `2026-08-10`. Um `HEAD` nas duas URLs fixadas:
+
+| partição | pin (10/08) | export de 17/08 | delta |
+|---|---|---|---|
+| `2004q1/0001-of-0005` | 46.533.953 B | 69.338.863 B | **+49%** |
+| `2025q1/0001-of-0028` | 162.319.793 B | 109.378.959 B | **−33%** |
+
+Mesmos ids, mesmas fronteiras — 5 e 28 partições, 12.000 relatos cada. Não foi rechunking, foi **revisão de conteúdo**. Oito dias.
+
+**A AD-008 previu isto por escrito e aceitou:** *"se o openFDA reescrever uma partição in-place, o SHA-256 detecta mas não recupera o original."* O trade-off venceu em oito dias, o que é mais rápido do que "pin, don't hoard" supunha ao ser escrito. Os bytes de 10/08 não existem mais em lugar nenhum, então todo número que o M0 mediu contra eles é irreproduzível — não errado, **irreproduzível**, que para este projeto é pior.
+
+**O que sobreviveu ao repin, e é a parte útil:** os **conjuntos de campos são idênticos** nos dois exports, tabela por tabela. `report` 24↔24 em 2004 e 31↔31 em 2025, e o mesmo nas outras quatro. A forma do dado não se mexeu; só o conteúdo. Isso é evidência direta para a fronteira de era da M1 — uma revisão de export muda contagem e valor, não caminho de campo, então um mapa de eras derivado do export N tem chance real de sobreviver ao N+1. Uma medição, dois exports; não é uma lei.
+
+**O que não sobreviveu:** quase todo número medido. Ver a tabela em L-015.
+
+**A consequência de desenho, que ainda não tem decisão:** a M1 leva semanas a 6 h/semana e o export rotaciona em dias. Varredura, mapa de eras e colheita virão de exports diferentes se ninguém escrever a regra. AD-027 resolveu o mecanismo — mover de export agora é explícito e nomeado. A regra de plano ("export novo invalida o mapa de eras em vez de continuá-lo") é da Fase 2 da M1 e continua não escrita.
+
+**E reabre AD-008 e AD-012 juntas:** guardar os zips crus no alvo remoto teria tornado o pin recuperável. "Pin, don't hoard" foi escolhido quando ninguém tinha visto o openFDA reescrever nada. Agora viu.
+
+### L-015: Cada número do M0 é propriedade de um export, e o repin de 18/08 mudou quase todos
+
+Remedido sobre o export de 2026-08-17, com o pipeline inteiro reingerido. O que mudou, e o que não:
+
+| | export 10/08 | export 17/08 |
+|---|---|---|
+| **2025** `report_drug` | 71.990 | 51.481 |
+| **2025** `report_reaction` | 44.916 | 36.568 |
+| **2025** `report_duplicate` | 7.872 | 5.308 |
+| **2025** `dim_openfda` | 2.251 | 2.117 |
+| **2025** Parquet | 4,62 MB | 4,17 MB |
+| **2025** UNII | 82,86% | 82,72% |
+| **2004** `report_drug` | 36.324 | 43.624 |
+| **2004** `report_reaction` | 39.435 | 42.408 |
+| **2004** `dim_openfda` | 1.128 | 1.197 |
+| **2004** UNII | 51,88% | 55,4% |
+| **2004** ids repetidos (B-004) | **6** | **3** |
+| Interseção da dimensão (B-006) | 866 de 1.128 · 76,8% | **872 de 1.197 · 72,8%** |
+| Projeção de dimensão no corpus | ~3,7 GB | **~3,60 GB** |
+| Largura mediana de um relato | 2 | **1** |
+| Corte do percentil 99 | 27 | **22** |
+| Relato mais largo | 96 | **176** |
+| Relatos acima do corte (L-011) | 125 · 1,04% | **127 · 1,06%** |
+| Pares na tabela | 28.540 | **16.436** |
+| Pares lotados | 18.946 · 66,4% | **11.247 · 68,4%** |
+| Evans mantém | 85% | **87,5%** |
+
+**As conclusões sobrevivem; os números não.** A lotação continua sendo o resultado do M0 e ficou um pouco mais forte — 1,06% dos relatos sustentam 68,4% dos pares, contra 1,04% e 66,4%. A B-006 continua furando a G1. A B-005 continua aberta e o round trip continua fechando em 2025 e recusando 2004.
+
+**O que não sobreviveu é a manchete.** O topo da tabela não é mais micose de unha num adesivo de buprenorfina. É `HYDRALAZINE HYDROCHLORIDE` → vasculite ANCA-positiva, a = 3, b = 0, c = 1, d = 11.996, com lotação 5 — **não lotado**. E essa associação é real e bem documentada na literatura. A seção do relatório se chama "O ranking está aritmeticamente certo e clinicamente absurdo" e o primeiro exemplo dela deixou de ser absurdo. A prosa de `reports/m0.qmd` está desatualizada em número e em tese, e reescrevê-la é decisão editorial, não conserto de pipeline.
 
 ### L-002: Always measure before believing a size number
 

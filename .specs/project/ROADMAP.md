@@ -1,7 +1,8 @@
 # Roadmap
 
-**Current Milestone:** M0 — Walking Skeleton
-**Status:** Planning
+**Milestone atual:** M1 — Corpus completo
+**Status:** Especificado — `.specs/features/m1-corpus-completo/` (spec, design, 29 tasks)
+**M0:** completo em 14/08/2026, site no ar
 
 **Budget:** 6 h/week. Each milestone below is sized in hours, not dates. ~24 h/month.
 
@@ -41,6 +42,8 @@
 **Objetivo:** os 20,7M relatos ingeridos, normalizados e se atualizando em agenda sem supervisão.
 
 > Reescrito em 14/08/2026 pela revisão de arquitetura. O M1 anterior descrevia intenções que o M0 já tinha resolvido de outro jeito — ver AD-017 a AD-022. As ~8 h a mais são o custo de fechar isso.
+
+> **Decomposto em 16/08/2026** — `.specs/features/m1-corpus-completo/` traz spec (24 requisitos), design e 29 tasks. A decomposição soma **~52 h contra as ~44 h daqui**, e a diferença tem duas causas nomeadas: a dívida da M0 que bloqueia a colheita (B-004, B-005, o teto de memória) e uma feature que este ROADMAP não lista — **a `dim_openfda` é deduplicada por partição e por isso não converge** (B-006). Medido: 866 dos 1.128 blocos de 2004 reaparecem na partição de 2025, e escrita como está a dimensão custa ~3,7 GB sobre 1.767 partições contra 1,7–3,6 GB de fatos. O `< 5 GB` da G1 não sobrevive a isso.
 
 ### Features
 
