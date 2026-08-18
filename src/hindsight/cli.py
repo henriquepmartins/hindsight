@@ -78,10 +78,10 @@ def _report(summary: dict) -> None:
         print(f"{column:<18} {share:>10}")
 
 
-def _ingest(partition_id: str, *, reinfer: bool) -> None:
+def _ingest(partition_id: str, *, reinfer: bool, repin: bool) -> None:
     partition = resolve(partition_id)
-    archive = ensure_local(partition)
-    schemas = _schemas(partition, archive, reinfer=reinfer)
+    archive = ensure_local(partition, repin=repin)
+    schemas = _schemas(partition, archive, reinfer=reinfer or repin)
 
     log.info("passo 2: escrevendo parquet contra o schema congelado")
     written = write_partition(
@@ -171,6 +171,13 @@ def main(argv: list[str] | None = None) -> int:
 
     fetch = commands.add_parser("fetch", help="Baixa e fixa uma partição")
     fetch.add_argument("partition_id", help='e.g. "2025q1/0001-of-0028"')
+    fetch.add_argument(
+        "--repin",
+        action="store_true",
+        help="Move a partição para o export corrente do openFDA e grava um pin "
+        "novo. Todo número medido contra o export antigo passa a precisar de "
+        "nova medição",
+    )
 
     ingest = commands.add_parser("ingest", help="Normaliza uma partição para Parquet")
     ingest.add_argument("partition_id", help='e.g. "2025q1/0001-of-0028"')
@@ -178,6 +185,13 @@ def main(argv: list[str] | None = None) -> int:
         "--reinfer",
         action="store_true",
         help="Refaz o passo 1 e sobrescreve o schema versionado desta partição",
+    )
+    ingest.add_argument(
+        "--repin",
+        action="store_true",
+        help="Move a partição para o export corrente do openFDA antes de "
+        "ingerir. Implica --reinfer, porque o schema congelado descreve os "
+        "bytes antigos",
     )
 
     analyze = commands.add_parser("analyze", help="Ordena pares medicamento-evento por PRR")
@@ -215,7 +229,7 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         if args.command == "fetch":
-            print(ensure_local(resolve(args.partition_id)))
+            print(ensure_local(resolve(args.partition_id), repin=args.repin))
         elif args.command == "analyze":
             _analyze(
                 args.partition_id,
@@ -225,7 +239,7 @@ def main(argv: list[str] | None = None) -> int:
                 to_csv=args.to_csv,
             )
         else:
-            _ingest(args.partition_id, reinfer=args.reinfer)
+            _ingest(args.partition_id, reinfer=args.reinfer, repin=args.repin)
     except (
         ManifestError,
         FetchError,
