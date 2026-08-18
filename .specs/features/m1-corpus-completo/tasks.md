@@ -70,13 +70,27 @@ partições escrita contra a chave errada não é uma colheita a corrigir, é um
 **Depende de:** nada · **Requisito:** M1-01
 
 **Pronta quando:**
-- [ ] AD-025 escrito no STATE com decisão, razão, trade-off, alternativas rejeitadas e impacto
-- [ ] Está escrito que `ordinal` **não é estável entre exports** (L-006) e que M4 não pode usá-lo como
+- [x] AD-025 escrito no STATE com decisão, razão, trade-off, alternativas rejeitadas e impacto
+- [x] Está escrito que `ordinal` **não é estável entre exports** (L-006) e que M4 não pode usá-lo como
       identidade durável
-- [ ] B-004 marcado como resolvido, com link para o AD
-- [ ] `design.md` da M0 e `ARCHITECTURE.md` deixam de afirmar que `safetyreportid` é PK
+- [x] B-004 marcado como resolvido, com link para o AD
+- [x] `design.md` da M0 e `ARCHITECTURE.md` deixam de afirmar que `safetyreportid` é PK
 
-**Verify:** `grep -rn "safetyreportid" ARCHITECTURE.md .specs/features/m0-walking-skeleton/design.md | grep -i "chave prim\|primary key\|PK"` não retorna nada.
+**Verify:** ~~`grep -rn "safetyreportid" ARCHITECTURE.md .specs/features/m0-walking-skeleton/design.md | grep -i "chave prim\|primary key\|PK"` não retorna nada.~~
+
+> ⚠️ **Este Verify passa, e mesmo assim foi trocado — ele testa a palavra errada.** Ele procura a *frase* "chave
+> primária". Antes desta task ele reprovava por causa da linha que dizia `safetyreportid` **não** é chave
+> primária — texto certo, Verify vermelho. Agora aprova, porque a frase saiu. Nos dois casos ele mediu a
+> palavra e não a afirmação: um documento que reintroduzisse a PK sem usar o termo passaria verde.
+> Substituído por:
+>
+> `grep -rn "safetyreportid" ARCHITECTURE.md .specs/features/m0-walking-skeleton/design.md` — cada
+> ocorrência é lida à mão, e nenhuma pode afirmar que `safetyreportid` é chave primária ou chave de
+> junção sem apontar para AD-025. São poucas o bastante para isso ser barato e honesto.
+
+**Concluída em 18/08/2026.** A remedição mudou a caracterização dos pares (L-013 estava errado) e
+encontrou de brinde que `analysis/prr.py` monta o 2×2 com `count(DISTINCT safetyreportid)` — 11.997 e
+não 12.000 em 2004. Registrado no impacto da AD-025, para a T2.
 
 **Commit:** `docs(state): decide B-004 com chave substituta por partição`
 

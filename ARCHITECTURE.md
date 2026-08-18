@@ -130,6 +130,8 @@ o quebra em cinco tabelas, definidas em `normalize.TABLES`:
 | `report_duplicate` | uma entrada de `reportduplicate` | `safetyreportid`, `seq` |
 | `dim_openfda` | um bloco de enriquecimento distinto | `openfda_key` |
 
+> ⚠️ **A coluna de junção muda com a AD-025.** As três filhas passam a chavear em `(ordinal, seq)`, e `safetyreportid` fica como coluna do `report`. A T2 da M1 implementa; a tabela acima é o que está no disco hoje.
+
 Regras que essas tabelas carregam:
 
 - **Nenhuma lista de campos a manter.** `split` itera o registro. As colunas de
@@ -154,9 +156,17 @@ Regras que essas tabelas carregam:
 - **`seq` nulo em `report_duplicate` significa que a fonte trazia um objeto e não
   um array.** É o único marcador de forma no modelo, e `roundtrip._duplicates` o
   lê para decidir se reconstrói um objeto ou uma lista.
-- **`safetyreportid` não é chave primária garantida.** `metrics` conta os ids
-  repetidos por partição e grava em `repeated_report_ids`. Medido: 0 de 12.000 na
-  partição de 2025, 6 de 12.000 na de 2004.
+- **`safetyreportid` identifica um documento, não um relato, e não serve para
+  juntar.** `metrics` conta os ids repetidos por partição e grava em
+  `repeated_report_ids`. Medido no export de 2026-08-17: 0 de 12.000 na partição
+  de 2025, **3 de 12.000** na de 2004 — e os três pares são um caso e seu
+  follow-up, separados só por `transmissiondate`. **AD-025 decidiu que a junção
+  entre as cinco tabelas é `ordinal`**, a posição do relato dentro da partição,
+  que não colide por construção em era nenhuma; `safetyreportid` fica como coluna
+  do `report`. A **T2 da M1 ainda não implementou** — o código descrito acima
+  chaveia em `safetyreportid` e `roundtrip.reconstruct` recusa o id ambíguo pelo
+  nome. Este parágrafo descreve o que está no disco hoje, e a nota diz para onde
+  vai.
 
 O layout em disco vem de `write.partition_dir`: buckets no formato `YYYYqN` viram
 `year=<ano>/quarter=<n>/part=<parte>/`, e qualquer outro bucket (o export tem um

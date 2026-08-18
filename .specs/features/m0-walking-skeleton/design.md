@@ -72,10 +72,12 @@ Narrow interfaces, deep implementations. Each module hides one hard thing and ex
 
 Five tables. `safetyreportid` is the join key throughout.
 
+> ⚠️ **Superado por AD-025 (18/08/2026).** A junção passa a ser `ordinal`, a posição do relato dentro da partição, e `safetyreportid` vira atributo do `report`. A T2 da M1 implementa; esta seção descreve o que está no disco até lá.
+
 > Four of them were designed up front. `report_duplicate` was added by AD-013 after T9 measured the field arriving in two shapes, and this section was corrected only once that decision was taken — not when the code started writing it.
 
 **`report`** — one row per report
-- `safetyreportid` (string) — **not a primary key.** T19 found 6 repeated ids in 12,000 in `2004q1/0001-of-0005`, and the two sides of each pair are different submissions, not the same report twice (L-013). `metrics.json` counts them as `repeated_report_ids`, measured over the written Parquet like every other number there, and both rows are kept; `reconstruct` refuses **those reports by name** and leaves the rest of the partition reconstructible. Giving `report` a surrogate key is the open decision in B-004
+- `safetyreportid` (string) — identifica um documento, não um relato, e **não é a chave de junção**. Contra o export de 2026-08-17, `2004q1/0001-of-0005` traz 3 ids repetidos em 12.000, e os três pares são um caso e seu follow-up, separados por `transmissiondate` (AD-025 — L-013 dizia "submissões distintas" e isso não sobreviveu à remedição). `metrics.json` os conta em `repeated_report_ids`, medido sobre o Parquet escrito como todo número de lá, e as duas linhas ficam; `reconstruct` recusa **esses relatos pelo nome** e deixa o resto da partição reconstruível. **A chave substituta foi decidida em AD-025 e ainda não foi implementada** — T2 da M1
 - every top-level field except `patient`
 - every `patient` scalar/struct field except `drug` and `reaction`, prefixed `pt_`
 
