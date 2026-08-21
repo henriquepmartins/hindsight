@@ -11,7 +11,7 @@
 
 **T19 é a que mudou o projeto.** A partição mais antiga do export comprime 78,8× e mesmo assim sai *menor* que a de 2025, então a projeção de corpus desce para 1,7–3,6 GB. E ela carrega **6 `safetyreportid` repetidos em 12.000** — o que abriu **B-004**, hoje fechado pela AD-025. *(Contra o export de 17/08 são 3, e a caracterização dos pares mudou: ver AD-025.)*
 
-**Uma revisão de arquitetura independente da decomposição da M1 rodou em 18/08 e pediu mudanças** — 9 bloqueantes e 7 importantes. Três dos bloqueantes são o mesmo defeito: número propagado entre documentos sem ninguém reabrir o dado. `patient.drug: null` não existe (o caminho com 1.375 ocorrências é `patient.drug[].drugtreatmentdurationunit`), as chaves da `dim_openfda` nunca foram locais, e `receiver` não mudou de tipo entre eras — é sempre-nulo em 2004 e o sentinela do `schema` o escreve como `"string"`, o que faz a regra de fronteira de era fechar era por ruído. **A decomposição não deve ser implementada como está**, e as quatro tasks de decisão (T1, T3, T7, T8) precisam remedir antes de escrever seus ADs.
+**Uma revisão de arquitetura independente da decomposição da M1 rodou em 18/08 e pediu mudanças** — 9 bloqueantes e 7 importantes. Três dos bloqueantes são o mesmo defeito: número propagado entre documentos sem ninguém reabrir o dado. `patient.drug: null` não existe (o caminho com 1.560 ocorrências é `patient.drug[].drugtreatmentdurationunit`), as chaves da `dim_openfda` nunca foram locais, e `receiver` não mudou de tipo entre eras — é sempre-nulo em 2004 e o sentinela do `schema` o escreve como `"string"`, o que faz a regra de fronteira de era fechar era por ruído. **A decomposição não deve ser implementada como está**, e as quatro tasks de decisão (T1, T3, T7, T8) precisam remedir antes de escrever seus ADs.
 
 **Duas coisas foram consertadas em 18/08, na ordem que a revisão pediu.** Primeira: **o arnês do round trip** tinha a partição de 2025 fixa no arquivo de teste, então o Verify que iterava as duas eras rodava 2025 duas vezes, e artefato ausente virava `pytest.skip` — o portão do milestone não podia falhar. Agora é parametrizado por partição, o nome do caso carrega o id, e artefato faltando é falha. Consequência registrada em **B-007**: `make all` fica vermelho até a T4. Segunda: **o repin**. O openFDA reescreveu as duas partições fixadas em oito dias (**L-014**), os bytes de 10/08 não existem mais, e `ensure_local` nunca comparava o pin com o export publicado — rodava feliz sobre bytes velhos. `StalePin` e `--repin` fecham o mecanismo (**AD-027**); as duas partições foram reingeridas contra o export de 17/08 e **quase todo número do M0 mudou** (**L-015**).
 
@@ -335,13 +335,29 @@ Isso não são dois documentos sem relação. É **um caso e seu follow-up** —
 
 **Descoberto:** revisão do PR da T19, ao perguntar quanto da era antiga a recusa por id estava jogando fora. A resposta expôs um problema maior que o id.
 
-**O fato:** em `2004q1/0001-of-0005`, **12.000 de 12.000 relatos carregam pelo menos um null explícito.** `receiver: null` em todos os 12.000, `primarysource: null` em 3.165, `patient.patientdeath.*: null` em 1.139, e **`patient.drug: null` em 1.375**.
+**O fato, remedido em 20/08/2026** contra o export de 17/08, caminhando recursivamente todo valor dos 24.000 relatos das duas partições: em `2004q1/0001-of-0005`, **12.000 de 12.000 relatos carregam pelo menos um null explícito**, e o conjunto inteiro de caminhos que produzem isso são cinco.
+
+| caminho | ausente | null | valor |
+|---|---|---|---|
+| `receiver` | 0 | **12.000** | 0 |
+| `primarysource` | 0 | 3.150 | 8.850 |
+| `patient.drug[].drugtreatmentdurationunit` | 40.780 | 1.560 | 1.284 |
+| `patient.patientdeath.patientdeathdate` | | 1.027 | |
+| `patient.patientdeath.patientdeathdateformat` | | 1.027 | |
+
+Em `2025q1/0001-of-0028` são **zero**, o que confirma L-008 sobre a era nova.
+
+**Três números desta entrada estavam errados.** `patient.drug: null` **não existe**; o caminho é `patient.drug[].drugtreatmentdurationunit` e são 1.560 linhas de 43.624, não 1.375 relatos. `primarysource` são 3.150 e não 3.165. `patient.patientdeath.*` são 1.027 em cada um de dois campos, não 1.139.
+
+**Dois fatos que a varredura anterior não podia ver, porque era rasa.** Os nulls de `patientdeath` estão **dentro de um struct**, então distinguir ausente de nulo exige caminho pontilhado e não nome de campo raso. E **`patient.drug[].openfda: {}` ocorre nas duas eras**, 502 vezes em 2004 e 476 em 2025, que é exatamente o caso de L-005 e a razão da regra `if o is not None`. Ele fecha hoje porque a linha da dimensão existe e a remoção de nulls varre as 18 colunas nulas antes da comparação. Tirar essa remoção sem pôr um marcador no lugar **quebraria o round trip de 2025, que hoje está verde**.
+
+**Só um dos cinco caminhos mistura ausente com null**, o `drugtreatmentdurationunit`. Nos outros quatro o null do Parquet já é inequívoco. São 2 partições de 1.767, e a varredura da Fase 2 mede o resto.
 
 **Por que isso é pior que B-004.** L-008 é a lição de que remover nulls dos dois lados antes de comparar só é o inverso do que o Parquet fez **se a fonte nunca carregar um null explícito** — caso contrário a remoção apaga um valor real dos dois lados, os dois passam a concordar, e o teste construído para pegar perda silenciosa vira o mecanismo que a esconde. L-008 mediu **0 nulls explícitos** e concluiu que a comparação significava o que dizia. Aquela medição era de 2025, e L-008 já dizia em letras que ela não transfere.
 
 Ela não transferiu. Medido agora com o guarda por relatório em vigor: dos 12.000, **12 são recusados por id ambíguo e 11.988 reconstroem idênticos — depois de remover os nulls dos dois lados.** Esse 11.988 **não é prova de nada**: é exatamente a comparação autocertificante que L-008 descreve. A leitura correta não é "99,9% da era antiga é comprovadamente lossless", é "não sabemos, e o número que parece dizer que sabemos é o número que L-008 mandou desconfiar".
 
-**O caminho de perda é concreto**, não teórico: `patient.drug: null` chega em 1.375 relatos, `normalize._entries` trata null como ausente e escreve zero linhas de medicamento, e `reconstruct` não emite a chave. A fonte tinha `"drug": null`, o rebuild não tem `drug`. Só a remoção de nulls faz os dois parecerem iguais.
+**O caminho de perda é concreto**, não teórico, e não é o que estava escrito aqui. `report.receiver` chega como `null` explícito nos 12.000 relatos, `write_partition` grava a coluna inteira nula, e `reconstruct` passa por `_without_nulls`, que apaga a chave. A fonte tinha `"receiver": null`, o rebuild não tem `receiver`. Só a remoção de nulls dos dois lados faz os dois parecerem iguais. Vale igual para `primarysource` em 3.150 relatos e para os dois campos de `patientdeath` em 1.027.
 
 **Por que não vazou:** `test_the_whole_partition_rebuilds_from_parquet` afirma a precondição por relatório antes de comparar (T11, que foi o que L-008 comprou). Em 2004 ela falha no primeiro relato. O teste **recusa** em vez de mentir, que é o desenho funcionando. Mas o resultado prático é que o round trip não tem nada a dizer sobre a era antiga.
 
@@ -355,14 +371,16 @@ Ela não transferiu. Medido agora com o guarda por relatório em vigor: dos 12.0
 ### B-006: a `dim_openfda` é deduplicada por partição, então ela multiplica em vez de convergir — ABERTO 2026-08-16
 
 > **Remedido em 18/08/2026 após o repin (L-015): 872 de 1.197, 72,8%, projeção ~3,60 GB.** As três afirmações que sustentam o bloqueador continuam de pé — a chave já é global, só a escrita é por partição, e a dimensão sozinha come a maior parte do orçamento da G1. A revisão de arquitetura da M1 acrescentou duas coisas que esta entrada não tem: a razão que a AD-024 usa para rejeitar a compactação posterior é falsa (não existem chaves locais), e uma dimensão global em memória custa ~10 KB por bloco, o que a torna incompatível com o teto de 500 MB e com o round trip. Ver os achados 2, 3 e 4 da revisão.
+>
+> **Remedido de novo em 20/08/2026, medindo os bytes da partição em vez de projetar a partir dos fatos:** `dim_openfda` é **64% dos bytes** da partição de 2004 (1,91 MB de 3,00 MB) e **59%** da de 2025 (2,46 MB de 4,17 MB). A média de 2,19 MB × 1.767 dá **~3,9 GB**, não 3,60. E a união das duas partições é **2.442** blocos contra soma ingênua de 3.314: 26,3% de economia entre as duas partições mais distantes que o corpus tem.
 
 **Descoberto:** decomposição da M1, ao dimensionar o corpus com a dimensão contada e não só os fatos.
 
 **O fato:** a chave da dimensão já é global por construção — 16 dígitos do SHA-1 do bloco em JSON canônico, então dois blocos idênticos em partições diferentes geram a mesma chave. **Só a escrita é por partição:** `write_partition` cria uma `OpenfdaDimension` nova a cada chamada e cada diretório recebe seu próprio `dim_openfda.parquet`. A ARCHITECTURE já dizia isso em letras — "a deduplicação é interna à partição, não de corpus" — sem que ninguém tivesse multiplicado o número por 1.767.
 
-**A medição, sobre as duas partições ingeridas:** 2004 tem 1.128 blocos, 2025 tem 2.251, a interseção é **866** e a união **2.513**. Ou seja **76,8% da dimensão de 2004 é redundante contra uma partição 21 anos depois** — e essas são as duas partições mais distantes que o corpus tem. Entre partições adjacentes a sobreposição só pode ser maior.
+**A medição, sobre as duas partições ingeridas** (números do export de 10/08; contra o de 17/08 são 1.197, 2.117, interseção **872** e união **2.442**)**:** 2004 tem 1.128 blocos, 2025 tem 2.251, a interseção é **866** e a união **2.513**. Ou seja **76,8% da dimensão de 2004 é redundante contra uma partição 21 anos depois** — e essas são as duas partições mais distantes que o corpus tem. Entre partições adjacentes a sobreposição só pode ser maior.
 
-**O que custa:** ~2,1 MB por partição × 1.767 ≈ **3,7 GB só de dimensão**, contra a projeção de 1,7–3,6 GB de fatos de L-013. Total 5,4–7,3 GB. **A G1 promete `< 5 GB` e não sobrevive a isso.** L-003 dizia que a dimensão "converge em vez de multiplicar, porque os mesmos medicamentos recorrem em toda partição" — a afirmação está certa sobre o *conteúdo* e errada sobre o *código*, que nunca a implementou.
+**O que custa:** ~2,19 MB por partição × 1.767 ≈ **3,9 GB só de dimensão** (medido em 20/08; a primeira estimativa dizia 3,7 GB), contra a projeção de 1,7–3,6 GB de fatos de L-013. Total 5,6–7,5 GB. **A G1 promete `< 5 GB` e não sobrevive a isso.** L-003 dizia que a dimensão "converge em vez de multiplicar, porque os mesmos medicamentos recorrem em toda partição" — a afirmação está certa sobre o *conteúdo* e errada sobre o *código*, que nunca a implementou.
 
 **O que ajuda:** `dim_openfda` tem as **mesmas 19 colunas em 2004 e em 2025**, conferido nos dois schemas versionados. É a única das cinco tabelas cuja forma não depende da era, o que torna uma dimensão única sobre o corpus segura por schema.
 
@@ -487,6 +505,8 @@ Compression is this extreme because nearly every column is low-cardinality and d
 **Solution:** measured the whole surface before deciding anything. Over the partition: **120 distinct field paths, exactly one with more than one JSON type.** The shape is not random — `reportduplicate` is an array only when there are 2+ entries, and **never once an array of length 1** across all 1,096. That is the signature of an XML-to-JSON conversion: FAERS is ICH E2B XML, a repeated element that occurs once has no array to be in, and the converter emits a bare object. So the field is a repeated child that looks like a struct, and it becomes a table (AD-013).
 
 Two more facts fell out of the same pass: `patient.drug` and `patient.reaction` are present, as arrays, in **12,000 of 12,000** reports, and **no array anywhere in the partition is empty**. An empty array would be indistinguishable from an absent field under the current model, since both produce zero child rows — a real hole, and one nothing in this export can trigger. T11 is where it would surface.
+
+> **Corrigido em 20/08/2026:** arrays vazios continuam sem ocorrência, mas **objetos vazios têm**. `patient.drug[].openfda: {}` aparece 502 vezes em 2004 e 476 em 2025. Ele não cai no buraco descrito acima porque a linha da dimensão existe e a chave é que decide se `openfda` é reemitido — ver B-005.
 
 **Prevents:** a schema conflict at partition 900 of a 1,767-partition crawl, and the two shortcuts that were available here. Promoting the bare object to a one-element list would have cost nothing today and made "byte-identical" mean "identical after a normalization we did not mention". Deriving the shape from the row count would have worked on every partition of this export and on no partition anyone has checked.
 
@@ -642,7 +662,8 @@ Remedido sobre o export de 2026-08-17, com o pipeline inteiro reingerido. O que 
 | **2004** UNII | 51,88% | 55,4% |
 | **2004** ids repetidos (B-004) | **6** | **3** |
 | Interseção da dimensão (B-006) | 866 de 1.128 · 76,8% | **872 de 1.197 · 72,8%** |
-| Projeção de dimensão no corpus | ~3,7 GB | **~3,60 GB** |
+| União da dimensão (B-006) | 2.513 | **2.442** |
+| Projeção de dimensão no corpus | ~3,7 GB | **~3,9 GB**, medida em bytes de partição em 20/08 |
 | Largura mediana de um relato | 2 | **1** |
 | Corte do percentil 99 | 27 | **22** |
 | Relato mais largo | 96 | **176** |
@@ -754,12 +775,17 @@ Remedido sobre o export de 2026-08-17, com o pipeline inteiro reingerido. O que 
 | Parquet de 2004 é **menor** que o de 2025 | 2,78 MB contra 4,62 MB, mesmos 12.000 relatos | T19, mesma rodada |
 | Fatos por relato | **83 B** em 2004 · 174 B em 2025 | T19, tamanhos por arquivo |
 | Projeção só-fatos do corpus | **1,7 GB .. 3,6 GB** sobre 20.692.690 relatos; 23% do corpus é anterior a 2015 | T19, as duas densidades × manifesto |
-| `dim_openfda` como fatia da saída | **63%** em 2004 (1,74 MB, 1.128 blocos) · 55% em 2025 | T19, mesma rodada |
+| `dim_openfda` como fatia da saída | **63%** em 2004 (1,74 MB, 1.128 blocos) · 55% em 2025 — **export de 10/08; contra o de 17/08 são 64% e 59%**, ver a linha da remedição de 20/08 | T19, mesma rodada |
 | Linhas em 2004 | drug **36.324** · reaction **39.435** · duplicate **0** | T19, `metrics.json` |
 | **`safetyreportid` repetidos em 2004** | **3 de 12.000** (11.997 distintos). Os três pares diferem em `transmissiondate`; dois não diferem em mais nada. Eram 6 no export de 10/08 | zip da fonte, export de 17/08 (AD-025) |
 | **`(safetyreportid, transmissiondate)` repetidos** | **0 em 24.000**, nas duas partições, e `transmissiondate` nunca é nulo | zip da fonte, export de 17/08 (AD-025) |
 | Round trip em 2004 | **12 recusados** por id ambíguo · 11.988 idênticos **só após remover nulls dos dois lados** | Revisão do PR da T19 (B-004, B-005) |
-| **Nulls explícitos em 2004** | **12.000 de 12.000 relatos** — `receiver` em todos, `patient.drug: null` em 1.375 | Revisão do PR da T19, caminhando todo valor (B-005) |
+| **Nulls explícitos em 2004** | **12.000 de 12.000 relatos**, em **cinco caminhos**: `receiver` 12.000 · `primarysource` 3.150 · `drug[].drugtreatmentdurationunit` 1.560 · `patientdeath.patientdeathdate` e `...dateformat` 1.027 cada. Zero em 2025 | Remedição de 20/08, varredura recursiva das duas partições (B-005) |
+| **Só um caminho mistura ausente com null** | `drug[].drugtreatmentdurationunit`: ausente 40.780 · null 1.560 · valor 1.284 | Remedição de 20/08, mesma varredura |
+| **`openfda: {}` vazio** | **502** em 2004 · **476** em 2025. Arrays vazios continuam em zero | Remedição de 20/08, mesma varredura |
+| **`dim_openfda` em bytes** | **64%** da partição de 2004 (1,91 de 3,00 MB) · **59%** da de 2025 (2,46 de 4,17 MB) · projeção **~3,9 GB** | Remedição de 20/08, tamanhos em disco (B-006) |
+| **União da dimensão nas duas partições** | **2.442** contra soma ingênua de 3.314 | Remedição de 20/08, chaves calculadas do zip |
+| **Custo de um `set` de chaves de 16 hex** | 91 MB por milhão · 419 MB por 5 milhões, contra o teto de 500 MB | Remedição de 20/08, `sys.getsizeof` |
 | Colunas 2004 ↔ 2025 | `report` 24↔31 · `report_drug` 16↔29 · `report_reaction` 3↔5 · `report_duplicate` 2↔4 | T19, diff dos dois schemas versionados |
 | `activesubstance` em 2004 | **ausente** — o PROJECT a nomeia como entrada da resolução de entidades de M2 | T19, mesmo diff |
 | Cobertura em 2004 | UNII **51,9%** (contra 82,9%) · `drugstartdate` **32,8%** (contra 22,5%) · `companynumb` 89,6% | T19, `metrics.json` |

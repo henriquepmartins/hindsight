@@ -73,15 +73,17 @@ que é pior do que a segunda transferência.
 
 ### AD-024 (proposta): a `dim_openfda` é global, não por partição — B-006
 
-**O fato medido, hoje, nas duas partições ingeridas:** 866 dos 1.128 blocos de 2004 reaparecem na
-partição de 2025. **76,8% da dimensão de 2004 é redundante contra uma partição 21 anos depois**, e
+**O fato medido, nas duas partições ingeridas** (export de 17/08, remedido em 20/08)**:** 872 dos
+1.197 blocos de 2004 reaparecem na partição de 2025. **72,8% da dimensão de 2004 é redundante contra
+uma partição 21 anos depois**, e
 essas são as duas partições mais distantes que o corpus tem. Entre partições adjacentes a
 sobreposição só pode ser maior.
 
 A chave já é global por construção — 16 dígitos do SHA-1 do bloco em JSON canônico, então dois
 blocos idênticos em partições diferentes geram a mesma chave. **Só a escrita é por partição**
 (`write_partition` cria uma `OpenfdaDimension` nova a cada vez). Sobre 1.767 partições isso custa
-~2,1 MB × 1.767 ≈ **3,7 GB de dimensão** contra 1,7–3,6 GB de fatos, e a G1 promete `< 5 GB`.
+~2,19 MB × 1.767 ≈ **3,9 GB de dimensão** contra 1,7–3,6 GB de fatos, e a G1 promete `< 5 GB`.
+Medida em bytes de partição: a dimensão é 64% da saída de 2004 e 59% da de 2025.
 
 Isso é um bloqueador que ninguém tinha aberto. Vai para o STATE como **B-006**.
 
@@ -95,7 +97,7 @@ vistas*. Sobre uma convergência plausível de algumas centenas de milhares de b
 de MB de `set` — mensurável na Fase A, antes de a colheita começar.
 
 **Alternativas rejeitadas:**
-- *Dimensão por era.* Mais barata em memória e mantém a era como unidade. Mas 866 blocos atravessam
+- *Dimensão por era.* Mais barata em memória e mantém a era como unidade. Mas 872 blocos atravessam
   2004→2025, então a redundância entre eras é justamente o que essa opção paga.
 - *Deixar por partição e comprar mais espaço.* Não existe "comprar" com a restrição R$ 0, e o número
   fura a G1.
@@ -139,8 +141,11 @@ Com isso `_without_nulls` **deixa de existir** dos dois lados da comparação, e
 `test_the_source_carries_no_explicit_nulls` deixa de ser necessário.
 
 Uma coluna por tabela, cinco no total. Em 2004 o valor típico é `["receiver"]`, que dicionariza para
-quase nada. `patient.drug: null` (1.375 relatos) vira `source_shape = ["patient.drug"]` na linha de
-`report`, e a reconstrução emite `"drug": null` em vez de omitir a chave.
+quase nada. Os nulls de `patientdeath` (1.027 relatos em dois campos) viram
+`source_shape = ["pt_patientdeath.patientdeathdate", ...]`, e a reconstrução reemite o null dentro do
+struct em vez de omitir a chave. **O marcador guarda caminho pontilhado dentro da linha, não nome de
+campo raso** — remedido em 20/08, e sem isso ele não alcança os nulls aninhados, que são 2 dos 5
+caminhos de 2004.
 
 O mesmo mecanismo fecha o todo de L-007 — array vazio indistinguível de campo ausente, hoje sem
 instância conhecida e com 1.767 partições pela frente para produzir uma.

@@ -19,8 +19,8 @@ verdadeiras ao mesmo tempo:
    partição carrega null explícito em 12.000 de 12.000 relatos e a comparação vira
    autocertificante (B-005). "Byte-identical" é hoje propriedade de uma era, não do corpus.
 3. **O dimensionamento foi feito por partição e o corpus não é a soma das partições.** A
-   `dim_openfda` é deduplicada *dentro* de cada partição, e 866 dos 1.128 blocos de 2004
-   reaparecem na partição de 2025 — 21 anos depois. Escrita como está, a dimensão custa ~3,7 GB
+   `dim_openfda` é deduplicada *dentro* de cada partição, e 872 dos 1.197 blocos de 2004
+   reaparecem na partição de 2025 — 21 anos depois. Escrita como está, a dimensão custa ~3,9 GB
    sobre 1.767 partições, contra 1,7–3,6 GB de fatos.
 
 A M1 é onde o pipeline deixa de rodar em duas partições supervisionadas e passa a rodar em 1.767
@@ -134,10 +134,10 @@ era, sequencialmente, no mesmo processo.
 **História:** Como o orçamento de armazenamento, quero que blocos `openfda` idênticos sejam
 guardados uma vez no corpus, para que a G1 caiba nos 5 GB com a dimensão contada.
 
-**Por que P1:** medido nas duas partições ingeridas — **866 dos 1.128 blocos de 2004 reaparecem em
+**Por que P1:** medido nas duas partições ingeridas — **872 dos 1.197 blocos de 2004 reaparecem em
 2025, 76,8%**, entre as duas partições mais distantes que o corpus tem. A dedup por conteúdo já é
 global por construção (SHA-1 do bloco canônico), só a *escrita* é por partição. Sobre 1.767
-partições isso custa ~3,7 GB de dimensão contra 1,7–3,6 GB de fatos, e a G1 promete `< 5 GB`.
+partições isso custa ~3,9 GB de dimensão contra 1,7–3,6 GB de fatos, e a G1 promete `< 5 GB`.
 
 **Critérios de aceitação:**
 

@@ -271,13 +271,13 @@ antes da colheita e não depois.
 
 ### T8: 🔸 Decidir B-006 — a dimensão `openfda` é global
 
-**O quê:** abrir B-006 no STATE com a medição (866 dos 1.128 blocos de 2004 reaparecem em 2025) e
+**O quê:** abrir B-006 no STATE com a medição (872 dos 1.197 blocos de 2004 reaparecem em 2025) e
 decidir entre dimensão global, por era, ou por partição.
 **Onde:** `.specs/project/STATE.md`
 **Depende de:** nada · **Requisito:** M1-06
 
 **Pronta quando:**
-- [ ] B-006 escrito com a medição e a projeção: ~2,1 MB × 1.767 ≈ 3,7 GB de dimensão contra 1,7–3,6 GB
+- [ ] B-006 escrito com a medição e a projeção: ~2,19 MB × 1.767 ≈ 3,9 GB de dimensão contra 1,7–3,6 GB
       de fatos, e a G1 promete `< 5 GB`
 - [ ] AD-024 escrito com a decisão
 - [ ] Está registrado que `dim_openfda` tem as **mesmas 19 colunas nas duas eras**, que é o que torna
@@ -293,7 +293,7 @@ b='data/parquet/year=2025/quarter=1/part=0001-of-0028/dim_openfda.parquet'
 c=duckdb.connect()
 print(c.sql(f\"select count(*) from (select openfda_key from '{a}' intersect select openfda_key from '{b}')\").fetchone())"
 ```
-Esperado: `(866,)`.
+Esperado: `(872,)`.
 
 **Commit:** `docs(state): abre B-006 e decide a dimensão openfda global`
 
@@ -311,7 +311,7 @@ escrita em pedaços, com a colheita mantendo em memória só o conjunto de chave
 - [ ] `KeyCollision` continua valendo — dois blocos diferentes com a mesma chave truncada falham alto
 - [ ] `openfda` ausente e `openfda: {}` continuam sendo coisas diferentes
 - [ ] As queries de `analysis/prr.py` e `metrics.py` apontam para o novo caminho
-- [ ] As duas partições reingeridas produzem **2.513 blocos no total**, não 3.379
+- [ ] As duas partições reingeridas produzem **2.442 blocos no total**, não 3.314
 
 **Verify:**
 ```bash
@@ -324,7 +324,7 @@ print('blocos:', duckdb.connect().sql(\"select count(*) from 'data/parquet/dim_o
 print('bytes dim:', sum(os.path.getsize(f) for f in glob.glob('data/parquet/dim_openfda/*.parquet')))"
 uv run pytest -q -m "slow or not slow"
 ```
-Esperado: **2.513 blocos** — a união medida em T8, não a soma. E o round trip segue verde: a dimensão
+Esperado: **2.442 blocos** — a união medida em T8, não a soma. E o round trip segue verde: a dimensão
 mudou de lugar, não de conteúdo.
 
 **Commit:** `feat(write): dedup do openfda passa a ser de corpus e não de partição`
