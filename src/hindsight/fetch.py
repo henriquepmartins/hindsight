@@ -29,6 +29,10 @@ class ChecksumMismatch(FetchError):
     pass
 
 
+class StalePin(FetchError):
+    pass
+
+
 @dataclass(frozen=True)
 class Pin:
     id: str
@@ -107,10 +111,31 @@ def ensure_local(
     *,
     raw_dir: Path = RAW_DIR,
     pin_dir: Path = PIN_DIR,
+    repin: bool = False,
 ) -> Path:
     archive = raw_dir / f"{partition.stem}.zip"
     pin_path = pin_dir / f"{partition.stem}.json"
     pin = _read_pin(pin_path)
+
+    if pin is not None and pin.export_date != partition.export_date:
+        if not repin:
+            raise StalePin(
+                f"{partition.id} está fixada no export de {pin.export_date} e o "
+                f"openFDA publica {partition.export_date}. Os bytes fixados podem "
+                f"nao existir mais. Rode com --repin para mover a partição para o "
+                f"export atual, ciente de que todo número medido contra o export "
+                f"antigo passa a precisar de nova medição."
+            )
+
+        log.info(
+            "repinando %s: export %s -> %s",
+            partition.id,
+            pin.export_date,
+            partition.export_date,
+        )
+
+        pin = None
+        archive.unlink(missing_ok=True)
 
     if pin is not None and archive.exists():
         digest, size = _sha256(archive)

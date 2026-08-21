@@ -1,4 +1,5 @@
 import json
+from dataclasses import replace
 from datetime import date
 
 import pytest
@@ -68,11 +69,12 @@ def server(monkeypatch):
 
 @pytest.fixture
 def store(tmp_path):
-    def _ensure(partition):
+    def _ensure(partition, **options):
         return f.ensure_local(
             partition,
             raw_dir=tmp_path / "raw",
             pin_dir=tmp_path / "manifest",
+            **options,
         )
 
     _ensure.raw = tmp_path / "raw"
@@ -185,3 +187,49 @@ def test_an_unreadable_pin_raises_rather_than_re_downloading(server, store, part
 
     with pytest.raises(f.FetchError, match="não é um pin legível"):
         store(partition)
+
+
+def test_a_pin_from_an_older_export_is_refused(server, store, partition):
+    store(partition)
+
+    moved = replace(partition, export_date=date(2026, 8, 17))
+
+    with pytest.raises(f.StalePin, match="fixada no export de 2026-08-10"):
+        store(moved)
+
+    assert (store.raw / "2025q1-0001-of-0028.zip").exists()
+    assert len(server.requests) == 1
+
+
+def test_a_stale_pin_is_caught_even_when_the_bytes_still_match(server, store, partition):
+    store(partition)
+
+    moved = replace(partition, export_date=date(2026, 8, 17))
+
+    with pytest.raises(f.StalePin):
+        store(moved)
+
+
+def test_repin_moves_the_partition_to_the_current_export(server, store, partition):
+    store(partition)
+
+    server.body = BODY + b"openFDA revised this"
+    moved = replace(partition, export_date=date(2026, 8, 17))
+
+    archive = store(moved, repin=True)
+
+    assert archive.read_bytes() == server.body
+
+    pin = json.loads((store.pins / "2025q1-0001-of-0028.json").read_text())
+
+    assert pin["export_date"] == "2026-08-17"
+    assert pin["bytes"] == len(server.body)
+
+
+def test_repin_does_not_resume_over_the_old_bytes(server, store, partition):
+    store(partition)
+
+    server.body = b"a completely different export"
+    moved = replace(partition, export_date=date(2026, 8, 17))
+
+    assert store(moved, repin=True).read_bytes() == server.body

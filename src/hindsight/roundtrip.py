@@ -14,6 +14,7 @@ from hindsight.normalize import (
     OPENFDA,
     OPENFDA_KEY,
     OPENFDA_TABLE,
+    ORDINAL,
     PATIENT,
     PATIENT_PREFIX,
     REACTION,
@@ -53,24 +54,20 @@ def _without_nulls(value: object) -> object:
 
 @dataclass(frozen=True)
 class Tables:
-    reports: dict[str, dict]
-    drugs: dict[str, list[dict]]
-    reactions: dict[str, list[dict]]
-    duplicates: dict[str, list[dict]]
+    reports: dict[int, dict]
+    drugs: dict[int, list[dict]]
+    reactions: dict[int, list[dict]]
+    duplicates: dict[int, list[dict]]
     openfda: dict[str, dict]
-    ambiguous: frozenset[str] = frozenset()
 
     @property
-    def report_ids(self) -> list[str]:
+    def ordinals(self) -> list[int]:
         return list(self.reports)
 
     @classmethod
     def from_rows(cls, rows: dict[str, list[dict]]) -> "Tables":
-        reports, ambiguous = _by_id(rows[REPORT_TABLE])
-
         return cls(
-            reports=reports,
-            ambiguous=ambiguous,
+            reports=_by_ordinal(rows[REPORT_TABLE]),
             drugs=_by_report(rows[DRUG_TABLE]),
             reactions=_by_report(rows[REACTION_TABLE]),
             duplicates=_by_report(rows[DUPLICATE_TABLE]),
@@ -87,29 +84,31 @@ class Tables:
         )
 
 
-def _by_id(rows: list[dict]) -> tuple[dict[str, dict], frozenset[str]]:
-    reports: dict[str, dict] = {}
-    ambiguous: set[str] = set()
+def _by_ordinal(rows: list[dict]) -> dict[int, dict]:
+    reports: dict[int, dict] = {}
 
     for row in rows:
-        report_id = row[REPORT_ID]
+        ordinal = row[ORDINAL]
 
-        if report_id in reports or report_id in ambiguous:
-            reports.pop(report_id, None)
-            ambiguous.add(report_id)
+        if ordinal in reports:
+            raise BrokenTables(
+                f"{ORDINAL} {ordinal} aparece em mais de uma linha de "
+                f"{REPORT_TABLE}. A posição dentro da partição é atribuída uma "
+                f"vez, pela passagem 2 — repetida, é o escritor quebrando o "
+                f"próprio contrato, e nenhuma linha pode ser descartada em "
+                f"silêncio."
+            )
 
-            continue
+        reports[ordinal] = row
 
-        reports[report_id] = row
-
-    return reports, frozenset(ambiguous)
+    return reports
 
 
-def _by_report(rows: list[dict]) -> dict[str, list[dict]]:
-    grouped: dict[str, list[dict]] = defaultdict(list)
+def _by_report(rows: list[dict]) -> dict[int, list[dict]]:
+    grouped: dict[int, list[dict]] = defaultdict(list)
 
     for row in rows:
-        grouped[row[REPORT_ID]].append(row)
+        grouped[row[ORDINAL]].append(row)
 
     return grouped
 
@@ -120,23 +119,24 @@ def _entry(row: dict, *columns: str) -> dict:
     )
 
 
-def _ordered(rows: list[dict], table: str, report_id: str) -> list[dict]:
+def _ordered(rows: list[dict], table: str, ordinal: int) -> list[dict]:
     positions = sorted(row[SEQ] for row in rows)
 
     if positions != list(range(len(rows))):
         raise BrokenTables(
-            f"relatório {report_id!r}: {table} tem {SEQ} {positions}, que não e "
-            f"0..{len(rows) - 1}. A ordem original do array não da para "
+            f"relatório {ordinal}: {table} tem {SEQ} {positions}, que não é "
+            f"0..{len(rows) - 1}. A ordem original do array não dá para "
             f"restaurar de linhas faltando ou duplicadas."
         )
 
     return [
-        _entry(row, REPORT_ID, SEQ) for row in sorted(rows, key=lambda row: row[SEQ])
+        _entry(row, REPORT_ID, ORDINAL, SEQ)
+        for row in sorted(rows, key=lambda row: row[SEQ])
     ]
 
 
-def _drugs(tables: "Tables", report_id: str) -> list[dict]:
-    drugs = _ordered(tables.drugs.get(report_id, []), DRUG_TABLE, report_id)
+def _drugs(tables: "Tables", ordinal: int) -> list[dict]:
+    drugs = _ordered(tables.drugs.get(ordinal, []), DRUG_TABLE, ordinal)
 
     for drug in drugs:
 
@@ -149,9 +149,9 @@ def _drugs(tables: "Tables", report_id: str) -> list[dict]:
 
         if block is None:
             raise BrokenTables(
-                f"relatório {report_id!r}: uma linha de medicamento aponta para "
+                f"relatório {ordinal}: uma linha de medicamento aponta para "
                 f"openfda_key {block_key!r}, sem linha correspondente em "
-                f"{OPENFDA_TABLE}. O conteudo do bloco sumiu, não só o join."
+                f"{OPENFDA_TABLE}. O conteúdo do bloco sumiu, não só o join."
             )
 
         drug[OPENFDA] = _entry(block, OPENFDA_KEY)
@@ -159,8 +159,8 @@ def _drugs(tables: "Tables", report_id: str) -> list[dict]:
     return drugs
 
 
-def _duplicates(tables: "Tables", report_id: str) -> dict | list[dict] | None:
-    rows = tables.duplicates.get(report_id, [])
+def _duplicates(tables: "Tables", ordinal: int) -> dict | list[dict] | None:
+    rows = tables.duplicates.get(ordinal, [])
 
     if not rows:
         return None
@@ -168,41 +168,29 @@ def _duplicates(tables: "Tables", report_id: str) -> dict | list[dict] | None:
     bare = [row for row in rows if row[SEQ] is None]
 
     if not bare:
-        return _ordered(rows, DUPLICATE_TABLE, report_id)
+        return _ordered(rows, DUPLICATE_TABLE, ordinal)
 
     if len(bare) == len(rows) == 1:
-        return _entry(rows[0], REPORT_ID, SEQ)
+        return _entry(rows[0], REPORT_ID, ORDINAL, SEQ)
 
     raise BrokenTables(
-        f"report {report_id!r}: {DUPLICATE_TABLE} holds {len(rows)} rows of "
+        f"report {ordinal}: {DUPLICATE_TABLE} holds {len(rows)} rows of "
         f"which {len(bare)} have a null {SEQ}. A null means the source carried "
-        f"a bare object, só it can only ever appear alone — this report is "
+        f"a bare object, so it can only ever appear alone — this report is "
         f"recorded as having been both an object and an array."
     )
 
 
-def reconstruct(tables: Tables, report_id: str) -> dict:
-    if report_id in tables.ambiguous:
-        raise BrokenTables(
-            f"{REPORT_ID} {report_id!r} aparece em mais de uma linha de "
-            f"{REPORT_TABLE}. As linhas de medicamento e reação das duas "
-            f"chegam misturadas numa lista só, entao não da para dizer qual "
-            f"array pertence a qual relatório — e uma reconstrução que chuta "
-            f"isso passaria no teste sem ser o inverso da escrita. Só este "
-            f"relatório é recusado; os outros da partição continuam "
-            f"reconstruíveis, e metrics.json conta os ids em "
-            f"repeated_report_ids."
-        )
-
-    row = tables.reports.get(report_id)
+def reconstruct(tables: Tables, ordinal: int) -> dict:
+    row = tables.reports.get(ordinal)
 
     if row is None:
         raise UnknownReport(
-            f"No report row for {report_id!r}. The tables hold "
+            f"No report row for {ORDINAL} {ordinal}. The tables hold "
             f"{len(tables.reports):,} reports."
         )
 
-    row = _without_nulls(row)
+    row = _without_nulls({name: value for name, value in row.items() if name != ORDINAL})
 
     report = {
         name: value
@@ -215,10 +203,8 @@ def reconstruct(tables: Tables, report_id: str) -> dict:
         if name.startswith(PATIENT_PREFIX)
     }
 
-    drugs = _drugs(tables, report_id)
-    reactions = _ordered(
-        tables.reactions.get(report_id, []), REACTION_TABLE, report_id
-    )
+    drugs = _drugs(tables, ordinal)
+    reactions = _ordered(tables.reactions.get(ordinal, []), REACTION_TABLE, ordinal)
 
     if drugs:
         patient[DRUG] = drugs
@@ -229,7 +215,7 @@ def reconstruct(tables: Tables, report_id: str) -> dict:
     if patient:
         report[PATIENT] = patient
 
-    duplicates = _duplicates(tables, report_id)
+    duplicates = _duplicates(tables, ordinal)
 
     if duplicates is not None:
         report[DUPLICATE] = duplicates

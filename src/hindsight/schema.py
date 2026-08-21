@@ -9,6 +9,7 @@ import pyarrow as pa
 
 from hindsight.normalize import (
     OPENFDA_KEY,
+    ORDINAL,
     PIPELINE_COLUMNS,
     REPORT_ID,
     SEQ,
@@ -21,7 +22,7 @@ from hindsight.normalize import (
 SCHEMA_DIR = Path("schema")
 
 
-COLUMN_TYPES = {REPORT_ID: "string", SEQ: "int64", OPENFDA_KEY: "string"}
+COLUMN_TYPES = {REPORT_ID: "string", ORDINAL: "int64", SEQ: "int64", OPENFDA_KEY: "string"}
 
 
 SCALARS: dict[type, str] = {str: "string", bool: "bool", int: "int64", float: "double"}
@@ -194,8 +195,8 @@ def infer(reports: Iterable[dict]) -> Schemas:
     observed: dict[str, dict[str, Node]] = {table: {} for table in TABLES}
     dimension = OpenfdaDimension()
 
-    for report in reports:
-        for table, rows in split(report, dimension).by_table().items():
+    for ordinal, report in enumerate(reports, start=1):
+        for table, rows in split(report, dimension, ordinal).by_table().items():
             known = observed[table]
 
             for row in rows:

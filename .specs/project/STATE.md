@@ -1,13 +1,23 @@
 # State
 
-**Last Updated:** 2026-08-14
+**Last Updated:** 2026-08-18
 **Current Work:** M0 — Walking Skeleton. T1–T12 done: repo initialized, dependencies pinned, Makefile skeleton, partition resolver, pinned resumable downloader, streaming report iterator, openfda dimension writer, record splitter, schema inference + Parquet sink, round-trip reconstructor, round-trip test, MedDRA exclusion list. **AD-013 is decided** — five tables, and a null `seq` on `report_duplicate` means the source carried a bare object. **The round trip closes and is now defended: 12,000 / 12,000 byte-identical, plus 13 tests over a committed 100-report fixture that CI can run without the partition.** Phase 3, the core of M0, is finished, and T12 curated 187 exclusion terms that clear the top of the ranking — what surfaces underneath is infliximab → sepsis, a real anti-TNF warning. **T12 also found the trap T13 walks into: one report carries 2,321 drug rows, and the naive join inflates the pair counts 2.2× (L-009).** T13 is written: PRR and χ² over a 2×2 of **distinct reports**, Evans as the screening criterion (AD-014), 0.13 s over the partition. **Its eye-check failed, and the failure is the milestone's finding — the top of the table is nine near-duplicate reports of one Canadian patient on ~90 drugs, and neither `drugcharacterization` nor Evans removes it (L-010).** T13 is committed. **T14 is done and it enlarged the finding (L-011): the nine duplicate reports are not a cluster to route around — 125 reports of 12,000, 1.04%, supply 66.4% of the whole pair table.** Three notebooks record the analyses that actually ran, `reports/m0.qmd` publishes that in 370 words and one chart, and `hindsight analyze --csv` writes the committed table the page reads. **T15 is done too** — `_quarto.yml` + `index.qmd`, light theme with no toggle, per-milestone navbar, the disclaimer in every footer, and `make site` regenerating the CSV before rendering so a stale page takes deliberate effort. **T16 is done** — CI green in 30 s, and its first run immediately caught the one dependency rule this milestone had just written down being broken (L-012). **T17 está commitado** (`ci: publish site to GitHub Pages`); falta confirmar a URL viva.
 
 **Uma revisão de arquitetura em 14/08 fechou o M1 no papel antes de T19 fechar o M0** — AD-017 a AD-022. Quatro dos seis achados eram a mesma coisa: uma promessa do PROJECT/ROADMAP que o M0 resolveu de um jeito deliberadamente estreito e correto, e que nenhum milestone assumia de volta na largura prometida. Dois já foram implementados e verificados: **`repeated_report_ids` no `metrics.json` com o round trip recusando o id ambíguo** (AD-020, medido 0 de 12.000) e a **guarda de procedência da página no CI** (AD-022). O `make test` deixou de ser um stub que saía 1, então `make all` roda de ponta a ponta pela primeira vez. Suíte em **202 testes, 1,6 s**.
 
 **T17, T18 e T19 fecharam em 14/08 e o M0 está completo.** O site está no ar e público. `make all` num clone limpo leva **47,4 s** com pico de **324,5 MB**, e o CSV que ele escreve é byte-idêntico ao versionado — a página é verificável, não confiável. O row group fica em 2.000, agora com os três pontos medidos.
 
-**T19 é a que mudou o projeto.** A partição mais antiga do export comprime 78,8× e mesmo assim sai *menor* que a de 2025, então a projeção de corpus desce para 1,7–3,6 GB. E ela carrega **6 `safetyreportid` repetidos em 12.000**, que não são o mesmo relato duas vezes — o que abre **B-004**: o round trip não roda na era antiga, e `safetyreportid` deixou de poder ser chamado de PK. Próxima ação: **decidir B-004** antes de M1 ligar o job por era de AD-019.
+**A M1 foi decomposta em 16/08/2026** — `.specs/features/m1-corpus-completo/` com spec (24 requisitos), design e 29 tasks em cinco fases. Três coisas saíram da decomposição e não estavam em lugar nenhum. Primeira: **o ROADMAP da M1 se referencia em círculo** — era é descoberta pela passagem 1, mas a passagem 1 é escopada por era; o pico de disco é o tamanho da maior era, e as eras não são conhecidas antes de medir. O design resolve com três fases sobre o corpus (varredura → mapa de eras → colheita) em vez de duas passagens sobre uma era, e o preço é honesto: o corpus é transferido duas vezes, ~5,4 h, que é exatamente o custo que AD-018 rejeitou. Segunda: **o drift não tem quando acontecer na colheita inicial** — se a varredura leu todas as partições da era, o schema congelado contém todo campo que a era tem, e `UnknownField` só pode disparar no refresh. AD-017 não diz isso. Terceira, e é a que abre **B-006**: a `dim_openfda` é deduplicada por partição.
+
+**T19 é a que mudou o projeto.** A partição mais antiga do export comprime 78,8× e mesmo assim sai *menor* que a de 2025, então a projeção de corpus desce para 1,7–3,6 GB. E ela carrega **6 `safetyreportid` repetidos em 12.000** — o que abriu **B-004**, hoje fechado pela AD-025. *(Contra o export de 17/08 são 3, e a caracterização dos pares mudou: ver AD-025.)*
+
+**Uma revisão de arquitetura independente da decomposição da M1 rodou em 18/08 e pediu mudanças** — 9 bloqueantes e 7 importantes. Três dos bloqueantes são o mesmo defeito: número propagado entre documentos sem ninguém reabrir o dado. `patient.drug: null` não existe (o caminho com 1.560 ocorrências é `patient.drug[].drugtreatmentdurationunit`), as chaves da `dim_openfda` nunca foram locais, e `receiver` não mudou de tipo entre eras — é sempre-nulo em 2004 e o sentinela do `schema` o escreve como `"string"`, o que faz a regra de fronteira de era fechar era por ruído. **A decomposição não deve ser implementada como está**, e as quatro tasks de decisão (T1, T3, T7, T8) precisam remedir antes de escrever seus ADs.
+
+**Duas coisas foram consertadas em 18/08, na ordem que a revisão pediu.** Primeira: **o arnês do round trip** tinha a partição de 2025 fixa no arquivo de teste, então o Verify que iterava as duas eras rodava 2025 duas vezes, e artefato ausente virava `pytest.skip` — o portão do milestone não podia falhar. Agora é parametrizado por partição, o nome do caso carrega o id, e artefato faltando é falha. Consequência registrada em **B-007**: `make all` fica vermelho até a T4. Segunda: **o repin**. O openFDA reescreveu as duas partições fixadas em oito dias (**L-014**), os bytes de 10/08 não existem mais, e `ensure_local` nunca comparava o pin com o export publicado — rodava feliz sobre bytes velhos. `StalePin` e `--repin` fecham o mecanismo (**AD-027**); as duas partições foram reingeridas contra o export de 17/08 e **quase todo número do M0 mudou** (**L-015**).
+
+**A T1 fechou em 18/08 — AD-025 escrita, B-004 resolvido.** A junção das cinco tabelas passa a ser `ordinal`, posicional dentro da partição, e `safetyreportid` vira atributo. A remedição derrubou a caracterização que L-013 tinha dado aos pares repetidos, e de quebra encontrou o 2×2 da PRR contando `DISTINCT safetyreportid` — 11.997 e não 12.000 em 2004. **T2** implementa.
+
+**Próxima ação:** decidir se `reports/m0.qmd` é reescrito contra o export novo. O topo da tabela deixou de ser absurdo — é `HYDRALAZINE` → vasculite ANCA-positiva, uma associação real — e a seção que se chama "aritmeticamente certo e clinicamente absurdo" perdeu o exemplo. Isso continua em aberto, e é editorial.
 
 ---
 
@@ -237,6 +247,64 @@ Em M0 — um gráfico, um CSV, tudo commitado junto — o risco é pequeno. O re
 
 ---
 
+### AD-025: a junção entre as cinco tabelas é uma chave substituta posicional, e `safetyreportid` vira atributo (2026-08-18)
+
+> Numerada 025 porque é a proposta que o design da M1 já reservava com esse número. As 023, 024 e 026 continuam vazias, à espera das T3, T8 e T7.
+
+**Remedido contra o export de 2026-08-17 antes de decidir**, porque todo número de B-004 e L-013 vinha de bytes que não existem mais (L-014). O que mudou não é só a contagem:
+
+| | export 10/08 | export 17/08 |
+|---|---|---|
+| ids repetidos em `2004q1/0001-of-0005` | 6 de 12.000 | **3 de 11.997 distintos** |
+| documentos envolvidos | 12 | **6** |
+| ids repetidos em `2025q1/0001-of-0028` | 0 | **0** |
+| `transmissiondate` ausente | — | **0 de 24.000, nas duas partições** |
+| `(safetyreportid, transmissiondate)` repetidos | — | **0 nas duas partições** |
+
+**E a caracterização dos pares estava errada.** L-013 disse que "cada par difere em `transmissiondate` e em mais um campo — `companynumb` num caso, `primarysource` noutro" e concluiu "duas submissões distintas debaixo de um id só". No export corrente, **os três pares diferem em `transmissiondate`, e dois deles não diferem em mais nada**. O terceiro, `4305706-0`, difere em **3 campos de 4.890**, e os outros dois são a mesma lista de reações com um termo MedDRA recodificado — `TUMOUR HAEMORRHAGE` virou `TONGUE HAEMORRHAGE` entre 29/11/2004 e 07/01/2005, e a lista é ordenada, então o termo mudou de posição junto.
+
+Isso não são dois documentos sem relação. É **um caso e seu follow-up** — que é exatamente o que o FAERS produz, e o que uma reanálise ponto-no-tempo existe para enxergar.
+
+**Decisão:** `report` ganha `ordinal` (int, a posição do relato dentro da partição, atribuída por `enumerate` na passagem 2). `ordinal` é a chave de junção das cinco tabelas; as filhas passam a chavear em `(ordinal, seq)`. **`safetyreportid` permanece como coluna do `report`, nunca descartado** — é o identificador público do relato e o round trip precisa dele. Globalmente um relato é `(partição, ordinal)`, e a partição já está no caminho hive do Parquet.
+
+**Razão:** a chave de junção de cinco tabelas sobre 20,7 milhões de relatos não pode depender de uma medição. `ordinal` não colide por construção, em nenhuma era, sem que ninguém precise conferir. Esta é a segunda vez que o projeto escolhe uma chave: a primeira foi `safetyreportid`, escolhida com a evidência de uma partição de 2025, e custou este bloqueador.
+
+**Alternativa rejeitada — a chave natural `(safetyreportid, transmissiondate)`.** Ela é sedutora agora, e é a mesma sedução de antes com outro nome: única em 2 partições de 1.767. Se colidir na partição 900, a correção é migrar cinco tabelas no meio da colheita. E ela é larga — duas colunas, uma delas string, replicadas em quatro tabelas filhas.
+
+**Alternativa rejeitada — deduplicar na ingestão.** Agora com razão melhor do que a de B-004: o par `4305706-0` difere num termo MedDRA. Colapsar os dois documentos descarta a revisão, que é precisamente o que a M4 existe para observar.
+
+**Alternativa rejeitada — round trip só onde os ids são únicos.** Zero código, e publica um buraco exatamente onde a fonte é mais suja, que é onde a prova mais vale.
+
+**Trade-off, dito por inteiro:** `ordinal` não carrega informação nenhuma. **Não é estável entre exports** (L-006), e L-014 acabou de provar que os exports rotacionam em dias reescrevendo conteúdo. Uma inserção a montante desloca todos os ordinais depois dela. **Portanto a M4 não pode usar `ordinal` como identidade durável** — um sinal datado por ordinal é um sinal datado por número de linha, e ele muda sem que o caso mude.
+
+**O que preenche esse buraco, e sai de graça:** a varredura da M1 lê as 1.767 partições antes de a colheita escrever um byte. Ela conta as colisões de `(safetyreportid, transmissiondate)` sobre o corpus inteiro — um contador numa passagem que já vai acontecer. Se o par for único sobre 20,7 milhões de relatos, a M2 e a M4 ganham uma identidade derivada de conteúdo, que sobrevive a um re-export porque é recomputável a partir dele. Se colidir, aprendemos isso antes de virar migração. **Nos dois casos a chave de junção não muda** — é essa separação que torna a decisão barata: junção por construção, identidade por medição.
+
+**Impacto:**
+- **T2** implementa: `normalize.split`, as três tabelas filhas, `roundtrip.Tables` e `reconstruct`, e os schemas congelados das duas partições já ingeridas.
+- **`analysis/prr.py` conta errado hoje, e a decisão conserta.** O 2×2 é montado com `count(DISTINCT safetyreportid)` (L-009). Em `2004q1/0001-of-0005` isso dá **11.997 e não 12.000** — os três pares colapsam em silêncio, e o denominador de toda razão da partição fica 3 relatos curto. São 0,025% e não muda conclusão nenhuma; o que importa é que ninguém tinha visto, e que numa partição mais suja o mesmo mecanismo erra mais.
+- **`repeated_report_ids` do `metrics.json` fica.** Deixa de ser o sintoma de um bloqueador e passa a ser uma medida de qualidade da fonte por partição — que é o que a M2 vai querer ler.
+- **Uma pendência para a T2, não medida:** os buckets `YYYYqN` gravam `year=/quarter=/part=` e o bucket `all_other` grava `bucket=/part=` (`write.partition_dir`). A tupla que qualifica o `ordinal` globalmente não tem a mesma forma nas duas. Nenhuma partição `all_other` foi ingerida ainda, então isto está escrito como consequência de desenho e não como medição.
+
+**Fecha B-004.**
+
+---
+
+### AD-027: pin obsoleto é recusado por nome, e mover de export é um ato explícito (2026-08-18) — IMPLEMENTADO
+
+> Numerada 027 de propósito: 023 a 026 estão reservadas para as quatro tasks de decisão da M1 (`.specs/features/m1-corpus-completo/design.md`), que ainda não foram escritas aqui.
+
+**Decisão:** `fetch.ensure_local` compara o `export_date` do pin gravado com o `export_date` que o `resolve()` acabou de ler do manifesto vivo. Divergiu, levanta `StalePin` e não faz nada. Mover a partição para o export corrente exige `--repin`, que existe em `hindsight fetch` e em `hindsight ingest`, apaga o zip cacheado, baixa limpo sem retomada, grava o pin novo e implica `--reinfer`.
+
+**Razão:** o guarda que existia comparava o zip em cache contra o **pin**, nunca contra o export publicado. Os dois batiam, então `hindsight ingest` rodava feliz sobre bytes de uma semana antes e nada falhava onde alguém olhava. É a forma exata de L-012, e a revisão de arquitetura da M1 a encontrou como o achado mais caro dela.
+
+**Trade-off:** uma partição parada num export antigo passa a exigir uma flag para andar, e a flag carrega uma consequência que nenhum comando consegue executar por você — remedir. `--repin` implica `--reinfer` porque o schema congelado descreve os bytes antigos, mas ele não sabe reescrever um número que mora numa frase do relatório.
+
+**Alternativa rejeitada:** *repinar sozinho quando o export muda.* Silencioso na direção oposta: o corpus andaria de export sem ninguém decidir, e todo número medido viraria falso sem aviso.
+
+**Impacto:** fecha o achado 1 da revisão no nível do mecanismo. **Não fecha no nível do plano** — a M1 leva semanas e o export rotaciona em dias, então falta a regra de que um export novo invalida o mapa de eras em vez de continuá-lo. Isso é decisão da Fase 2 da M1 e ainda não está escrita.
+
+---
+
 ## Active Blockers
 
 ### ~~B-001: Parquet compression ratio is estimated, not measured~~ — RESOLVED 2026-08-11
@@ -267,13 +335,29 @@ Em M0 — um gráfico, um CSV, tudo commitado junto — o risco é pequeno. O re
 
 **Descoberto:** revisão do PR da T19, ao perguntar quanto da era antiga a recusa por id estava jogando fora. A resposta expôs um problema maior que o id.
 
-**O fato:** em `2004q1/0001-of-0005`, **12.000 de 12.000 relatos carregam pelo menos um null explícito.** `receiver: null` em todos os 12.000, `primarysource: null` em 3.165, `patient.patientdeath.*: null` em 1.139, e **`patient.drug: null` em 1.375**.
+**O fato, remedido em 20/08/2026** contra o export de 17/08, caminhando recursivamente todo valor dos 24.000 relatos das duas partições: em `2004q1/0001-of-0005`, **12.000 de 12.000 relatos carregam pelo menos um null explícito**, e o conjunto inteiro de caminhos que produzem isso são cinco.
+
+| caminho | ausente | null | valor |
+|---|---|---|---|
+| `receiver` | 0 | **12.000** | 0 |
+| `primarysource` | 0 | 3.150 | 8.850 |
+| `patient.drug[].drugtreatmentdurationunit` | 40.780 | 1.560 | 1.284 |
+| `patient.patientdeath.patientdeathdate` | | 1.027 | |
+| `patient.patientdeath.patientdeathdateformat` | | 1.027 | |
+
+Em `2025q1/0001-of-0028` são **zero**, o que confirma L-008 sobre a era nova.
+
+**Três números desta entrada estavam errados.** `patient.drug: null` **não existe**; o caminho é `patient.drug[].drugtreatmentdurationunit` e são 1.560 linhas de 43.624, não 1.375 relatos. `primarysource` são 3.150 e não 3.165. `patient.patientdeath.*` são 1.027 em cada um de dois campos, não 1.139.
+
+**Dois fatos que a varredura anterior não podia ver, porque era rasa.** Os nulls de `patientdeath` estão **dentro de um struct**, então distinguir ausente de nulo exige caminho pontilhado e não nome de campo raso. E **`patient.drug[].openfda: {}` ocorre nas duas eras**, 502 vezes em 2004 e 476 em 2025, que é exatamente o caso de L-005 e a razão da regra `if o is not None`. Ele fecha hoje porque a linha da dimensão existe e a remoção de nulls varre as 18 colunas nulas antes da comparação. Tirar essa remoção sem pôr um marcador no lugar **quebraria o round trip de 2025, que hoje está verde**.
+
+**Só um dos cinco caminhos mistura ausente com null**, o `drugtreatmentdurationunit`. Nos outros quatro o null do Parquet já é inequívoco. São 2 partições de 1.767, e a varredura da Fase 2 mede o resto.
 
 **Por que isso é pior que B-004.** L-008 é a lição de que remover nulls dos dois lados antes de comparar só é o inverso do que o Parquet fez **se a fonte nunca carregar um null explícito** — caso contrário a remoção apaga um valor real dos dois lados, os dois passam a concordar, e o teste construído para pegar perda silenciosa vira o mecanismo que a esconde. L-008 mediu **0 nulls explícitos** e concluiu que a comparação significava o que dizia. Aquela medição era de 2025, e L-008 já dizia em letras que ela não transfere.
 
 Ela não transferiu. Medido agora com o guarda por relatório em vigor: dos 12.000, **12 são recusados por id ambíguo e 11.988 reconstroem idênticos — depois de remover os nulls dos dois lados.** Esse 11.988 **não é prova de nada**: é exatamente a comparação autocertificante que L-008 descreve. A leitura correta não é "99,9% da era antiga é comprovadamente lossless", é "não sabemos, e o número que parece dizer que sabemos é o número que L-008 mandou desconfiar".
 
-**O caminho de perda é concreto**, não teórico: `patient.drug: null` chega em 1.375 relatos, `normalize._entries` trata null como ausente e escreve zero linhas de medicamento, e `reconstruct` não emite a chave. A fonte tinha `"drug": null`, o rebuild não tem `drug`. Só a remoção de nulls faz os dois parecerem iguais.
+**O caminho de perda é concreto**, não teórico, e não é o que estava escrito aqui. `report.receiver` chega como `null` explícito nos 12.000 relatos, `write_partition` grava a coluna inteira nula, e `reconstruct` passa por `_without_nulls`, que apaga a chave. A fonte tinha `"receiver": null`, o rebuild não tem `receiver`. Só a remoção de nulls dos dois lados faz os dois parecerem iguais. Vale igual para `primarysource` em 3.150 relatos e para os dois campos de `patientdeath` em 1.027.
 
 **Por que não vazou:** `test_the_whole_partition_rebuilds_from_parquet` afirma a precondição por relatório antes de comparar (T11, que foi o que L-008 comprou). Em 2004 ela falha no primeiro relato. O teste **recusa** em vez de mentir, que é o desenho funcionando. Mas o resultado prático é que o round trip não tem nada a dizer sobre a era antiga.
 
@@ -284,23 +368,49 @@ Ela não transferiu. Medido agora com o guarda por relatório em vigor: dos 12.0
 
 **Resolver antes de:** M1 ligar o job por era de AD-019, junto com B-004. Este é o que decide se ele tem o que provar; B-004 decide de quantos relatórios.
 
-### B-004: `safetyreportid` não identifica um relato na era antiga — ABERTO 2026-08-14
+### B-006: a `dim_openfda` é deduplicada por partição, então ela multiplica em vez de convergir — ABERTO 2026-08-16
 
-**Descoberto:** T19, na primeira partição fora de 2025 que o pipeline viu.
-**Impacto:** **12 relatórios de `2004q1/0001-of-0005` são irreconstruíveis** — 6 ids, dois documentos cada. `reconstruct` os recusa por nome e os outros 11.988 seguem reconstruíveis; a versão inicial deste guarda recusava a partição inteira, o que foi corrigido na revisão do PR. Contradiz `design.md`, que chamava `safetyreportid` de PK do `report`.
+> **Remedido em 18/08/2026 após o repin (L-015): 872 de 1.197, 72,8%, projeção ~3,60 GB.** As três afirmações que sustentam o bloqueador continuam de pé — a chave já é global, só a escrita é por partição, e a dimensão sozinha come a maior parte do orçamento da G1. A revisão de arquitetura da M1 acrescentou duas coisas que esta entrada não tem: a razão que a AD-024 usa para rejeitar a compactação posterior é falsa (não existem chaves locais), e uma dimensão global em memória custa ~10 KB por bloco, o que a torna incompatível com o teto de 500 MB e com o round trip. Ver os achados 2, 3 e 4 da revisão.
+>
+> **Remedido de novo em 20/08/2026, medindo os bytes da partição em vez de projetar a partir dos fatos:** `dim_openfda` é **64% dos bytes** da partição de 2004 (1,91 MB de 3,00 MB) e **59%** da de 2025 (2,46 MB de 4,17 MB). A média de 2,19 MB × 1.767 dá **~3,9 GB**, não 3,60. E a união das duas partições é **2.442** blocos contra soma ingênua de 3.314: 26,3% de economia entre as duas partições mais distantes que o corpus tem.
 
-**Corrigido em relação ao que esta entrada dizia primeiro:** o id repetido **não** é o que impede o round trip na era antiga. Esse é **B-005**, e é maior. Aqui trata-se de 12 relatórios em 12.000; lá, dos 12.000.
+**Descoberto:** decomposição da M1, ao dimensionar o corpus com a dimensão contada e não só os fatos.
 
-**O que já se sabe:** os 6 pares não são o mesmo relato duas vezes. Diferem em `transmissiondate` e em `companynumb` ou `primarysource` (L-013). São dois documentos distintos, e a fonte não oferece nada que os separe além da posição no arquivo — `report_duplicate` não existe em 2004, então `duplicatenumb` também não.
+**O fato:** a chave da dimensão já é global por construção — 16 dígitos do SHA-1 do bloco em JSON canônico, então dois blocos idênticos em partições diferentes geram a mesma chave. **Só a escrita é por partição:** `write_partition` cria uma `OpenfdaDimension` nova a cada chamada e cada diretório recebe seu próprio `dim_openfda.parquet`. A ARCHITECTURE já dizia isso em letras — "a deduplicação é interna à partição, não de corpus" — sem que ninguém tivesse multiplicado o número por 1.767.
 
-**A decisão que falta, e que T19 não contém:** dar ao `report` uma chave substituta — a posição do relato dentro da partição — para que a reconstrução volte a ser possível por era. É barato de implementar e caro de decidir sem querer: mexe na chave de junção de cinco tabelas, no `seq` das filhas, na afirmação de PK do design, e na forma como M2 vai falar de duplicata. **Não implementado deliberadamente.**
+**A medição, sobre as duas partições ingeridas** (números do export de 10/08; contra o de 17/08 são 1.197, 2.117, interseção **872** e união **2.442**)**:** 2004 tem 1.128 blocos, 2025 tem 2.251, a interseção é **866** e a união **2.513**. Ou seja **76,8% da dimensão de 2004 é redundante contra uma partição 21 anos depois** — e essas são as duas partições mais distantes que o corpus tem. Entre partições adjacentes a sobreposição só pode ser maior.
 
-**Alternativas na mesa:**
-- *Chave substituta `(partition_id, ordinal)`.* Reconstrução volta a funcionar em toda era; `safetyreportid` vira atributo e a colisão vira dado de M2 em vez de obstáculo. Custa migração das cinco tabelas.
-- *Round trip por era só onde os ids são únicos, com a cobertura publicada.* Zero código. Publica um buraco exatamente onde a fonte é mais suja, que é onde a prova mais vale.
-- *Deduplicar na ingestão.* Descartado à partida: decide M2 na ingestão, e os dois documentos não são iguais.
+**O que custa:** ~2,19 MB por partição × 1.767 ≈ **3,9 GB só de dimensão** (medido em 20/08; a primeira estimativa dizia 3,7 GB), contra a projeção de 1,7–3,6 GB de fatos de L-013. Total 5,6–7,5 GB. **A G1 promete `< 5 GB` e não sobrevive a isso.** L-003 dizia que a dimensão "converge em vez de multiplicar, porque os mesmos medicamentos recorrem em toda partição" — a afirmação está certa sobre o *conteúdo* e errada sobre o *código*, que nunca a implementou.
 
-**Resolver antes de:** M1 ligar o job de AD-019, junto com B-005. Até lá, "byte-identical" é propriedade das eras medidas, não do corpus, e é assim que precisa aparecer na página.
+**O que ajuda:** `dim_openfda` tem as **mesmas 19 colunas em 2004 e em 2025**, conferido nos dois schemas versionados. É a única das cinco tabelas cuja forma não depende da era, o que torna uma dimensão única sobre o corpus segura por schema.
+
+**A decisão que falta:** dimensão global, por era, ou por partição com mais espaço. A proposta do design da M1 é AD-024, global, com a colheita mantendo em memória só o conjunto de chaves já vistas — e quantas chaves o corpus tem é a incógnita que dimensiona esse `set`, medida na varredura antes de a colheita começar.
+
+**Resolver antes de:** a colheita da M1. Uma colheita de 1.767 partições escrita contra uma dimensão por partição não é uma colheita a corrigir depois, é uma colheita a refazer. Task **T8** da M1.
+
+### ~~B-004: `safetyreportid` não identifica um relato na era antiga~~ — RESOLVIDO 2026-08-18
+
+**Resolução:** fechado pela **AD-025**. A junção entre as cinco tabelas passa a ser `ordinal`, a posição do relato dentro da partição, que não colide por construção em nenhuma era. `safetyreportid` permanece como coluna do `report` — vira atributo, e a colisão vira dado da M2 em vez de obstáculo. A **T2** da M1 implementa; até lá o código continua chaveando em `safetyreportid` e `reconstruct` continua recusando o id ambíguo pelo nome (AD-020).
+
+**Remedido antes de decidir, e a caracterização mudou.** Contra o export de 2026-08-17 são **3 ids repetidos em 12.000**, não 6, e os pares **não são "duas submissões distintas" como L-013 afirmou**: os três diferem em `transmissiondate`, dois deles não diferem em mais nada, e o terceiro difere em 3 campos de 4.890 — um termo MedDRA recodificado numa lista ordenada. É um caso e seu follow-up. Ver AD-025 para a tabela completa e para a chave natural `(safetyreportid, transmissiondate)`, que é única nas duas partições e mesmo assim foi rejeitada como chave de junção.
+
+**O que ficou aberto de propósito:** `ordinal` não é estável entre exports (L-006), então a identidade durável de que a M4 precisa não é ele. A varredura da M1 mede as colisões de `(safetyreportid, transmissiondate)` sobre o corpus para responder isso, e é um contador numa passagem que já vai acontecer.
+
+**O que este bloqueador não resolvia e continua sem resolver:** o round trip na era antiga. Isso é **B-005**, e é maior — B-004 custava 6 documentos em 12.000; B-005 custa os 12.000.
+
+### B-007: `make all` reprova enquanto a B-005 estiver aberta — ABERTO 2026-08-18, por decisão
+
+**Descoberto:** ao consertar o arnês do round trip, que tinha a partição de 2025 fixa no arquivo de teste e por isso rodava a mesma era duas vezes quando o Verify pedia duas (achado 5 da revisão de arquitetura da M1).
+
+**O fato:** com o arnês parametrizado, `make all` descobre as partições ingeridas e testa todas. Em `2004q1/0001-of-0005` o round trip para no primeiro relato, na precondição de null explícito — `report.receiver` é null nos 12.000 relatos da partição. **Uma verde, uma vermelha.** O arnês antigo dizia duas verdes rodando 2025 duas vezes.
+
+**Isto não é regressão.** É a B-005 aparecendo pela primeira vez num comando que alguém roda. O teste recusa em vez de mentir, que é o desenho funcionando (T11).
+
+**A decisão, tomada em 18/08:** deixar vermelho. As alternativas eram `make all` passar `PARTITION` explicitamente — o que reintroduz de forma declarada o "o default esconde 2004" que o achado 5 acabou de abrir — e marcar 2004 como `xfail`, que fica verde hoje e vira mentira na direção oposta no dia em que a T4 consertar e ninguém tirar a marca. Vermelho é a única em que o que aparece na tela e o estado do projeto são a mesma coisa. É o padrão nº 2 do README aplicado ao próprio build.
+
+**Consequência para a página:** a afirmação de que `make all` reproduz a cadeia inteira num clone limpo passa a ter escopo — ela vale para a era de 2025 e não para o corpus. Precisa aparecer assim onde estiver escrita.
+
+**Resolver:** T4 da M1, que é quem distingue ausente de explicitamente nulo. Fecha junto com B-005.
 
 ### ~~B-003: `pyarrow` / `duckdb` not installed locally~~ — RESOLVED 2026-08-13
 
@@ -396,6 +506,8 @@ Compression is this extreme because nearly every column is low-cardinality and d
 
 Two more facts fell out of the same pass: `patient.drug` and `patient.reaction` are present, as arrays, in **12,000 of 12,000** reports, and **no array anywhere in the partition is empty**. An empty array would be indistinguishable from an absent field under the current model, since both produce zero child rows — a real hole, and one nothing in this export can trigger. T11 is where it would surface.
 
+> **Corrigido em 20/08/2026:** arrays vazios continuam sem ocorrência, mas **objetos vazios têm**. `patient.drug[].openfda: {}` aparece 502 vezes em 2004 e 476 em 2025. Ele não cai no buraco descrito acima porque a linha da dimensão existe e a chave é que decide se `openfda` é reemitido — ver B-005.
+
 **Prevents:** a schema conflict at partition 900 of a 1,767-partition crawl, and the two shortcuts that were available here. Promoting the bare object to a one-element list would have cost nothing today and made "byte-identical" mean "identical after a normalization we did not mention". Deriving the shape from the row count would have worked on every partition of this export and on no partition anyone has checked.
 
 ### L-008: The normalization that makes the round trip pass is the one place it could lie
@@ -489,9 +601,11 @@ Então a projeção de corpus **desce**, não sobe:
 
 Sobre 20.692.690 relatos, só os fatos projetam **1,7 GB na densidade de 2004 e 3,6 GB na de 2025**, e 23% do corpus é anterior a 2015. O `< 5 GB` da G1 sobrevive com folga. L-003 pode parar de ser um número com asterisco.
 
-**Depois vem a parte que muda o design.** A partição carrega **6 `safetyreportid` repetidos em 12.000** — 11.994 distintos. A guarda de AD-020 disparou na primeira exposição real que teve, e o 0-de-12.000 de 2025 era mesmo propriedade de um export e não do corpus.
+**Depois vem a parte que muda o design.** A partição carrega **6 `safetyreportid` repetidos em 12.000** — 11.994 distintos. *(Export de 10/08. Contra o de 17/08 são 3, com 11.997 distintos — L-015 e AD-025.)* A guarda de AD-020 disparou na primeira exposição real que teve, e o 0-de-12.000 de 2025 era mesmo propriedade de um export e não do corpus.
 
 Os seis pares **não são o mesmo relato duas vezes.** Conferidos contra o zip da fonte, cada par difere em `transmissiondate` e em mais um campo — `companynumb` (`163-20785-04030148` contra `163-20784-04030148`) num caso, `primarysource` ausente contra presente noutro. São duas submissões distintas debaixo de um id só.
+
+> ⚠️ **Este parágrafo não sobreviveu ao repin.** Contra o export de 17/08 são três pares, não seis; os três diferem em `transmissiondate` e dois não diferem em mais nada; e o terceiro difere em 3 campos de 4.890, com um termo MedDRA recodificado. "Duas submissões distintas" era leitura de um export; a leitura que se sustenta é **um caso e seu follow-up**. Ver AD-025.
 
 **A consequência é B-004:** `reconstruct` recusa esses 12 relatórios pelo nome, e `design.md` não pode mais chamar `safetyreportid` de PK. O comportamento está correto — recusar é melhor do que reconstruir chutando qual array pertence a qual relato.
 
@@ -508,6 +622,59 @@ Os seis pares **não são o mesmo relato duas vezes.** Conferidos contra o zip d
 **Fronteira de era, que é o que AD-017 precisava:** 24 contra 31 colunas em `report`, 16 contra 29 em `report_drug`, três structs de forma diferente. 2004 e 2025 não são a mesma era por nenhum critério, e o diff de campos é evidência utilizável em vez de uma década escolhida no papel.
 
 **Previne:** dimensionar M1 por uma partição de 2025 e descobrir na partição 900 que o identificador não identifica. Também previne o erro mais caro que estava armado: publicar "byte-identical" como propriedade do corpus quando ela é, hoje, propriedade das eras em que ninguém reusou um id.
+
+### L-014: O openFDA reescreve uma partição no lugar em 8 dias, e o pin detecta sem recuperar
+
+**Medido em 18/08/2026**, ao conferir o achado 1 da revisão de arquitetura da M1. O manifesto vivo publicava `export_date: 2026-08-17`; os pins do M0 diziam `2026-08-10`. Um `HEAD` nas duas URLs fixadas:
+
+| partição | pin (10/08) | export de 17/08 | delta |
+|---|---|---|---|
+| `2004q1/0001-of-0005` | 46.533.953 B | 69.338.863 B | **+49%** |
+| `2025q1/0001-of-0028` | 162.319.793 B | 109.378.959 B | **−33%** |
+
+Mesmos ids, mesmas fronteiras — 5 e 28 partições, 12.000 relatos cada. Não foi rechunking, foi **revisão de conteúdo**. Oito dias.
+
+**A AD-008 previu isto por escrito e aceitou:** *"se o openFDA reescrever uma partição in-place, o SHA-256 detecta mas não recupera o original."* O trade-off venceu em oito dias, o que é mais rápido do que "pin, don't hoard" supunha ao ser escrito. Os bytes de 10/08 não existem mais em lugar nenhum, então todo número que o M0 mediu contra eles é irreproduzível — não errado, **irreproduzível**, que para este projeto é pior.
+
+**O que sobreviveu ao repin, e é a parte útil:** os **conjuntos de campos são idênticos** nos dois exports, tabela por tabela. `report` 24↔24 em 2004 e 31↔31 em 2025, e o mesmo nas outras quatro. A forma do dado não se mexeu; só o conteúdo. Isso é evidência direta para a fronteira de era da M1 — uma revisão de export muda contagem e valor, não caminho de campo, então um mapa de eras derivado do export N tem chance real de sobreviver ao N+1. Uma medição, dois exports; não é uma lei.
+
+**O que não sobreviveu:** quase todo número medido. Ver a tabela em L-015.
+
+**A consequência de desenho, que ainda não tem decisão:** a M1 leva semanas a 6 h/semana e o export rotaciona em dias. Varredura, mapa de eras e colheita virão de exports diferentes se ninguém escrever a regra. AD-027 resolveu o mecanismo — mover de export agora é explícito e nomeado. A regra de plano ("export novo invalida o mapa de eras em vez de continuá-lo") é da Fase 2 da M1 e continua não escrita.
+
+**E reabre AD-008 e AD-012 juntas:** guardar os zips crus no alvo remoto teria tornado o pin recuperável. "Pin, don't hoard" foi escolhido quando ninguém tinha visto o openFDA reescrever nada. Agora viu.
+
+### L-015: Cada número do M0 é propriedade de um export, e o repin de 18/08 mudou quase todos
+
+Remedido sobre o export de 2026-08-17, com o pipeline inteiro reingerido. O que mudou, e o que não:
+
+| | export 10/08 | export 17/08 |
+|---|---|---|
+| **2025** `report_drug` | 71.990 | 51.481 |
+| **2025** `report_reaction` | 44.916 | 36.568 |
+| **2025** `report_duplicate` | 7.872 | 5.308 |
+| **2025** `dim_openfda` | 2.251 | 2.117 |
+| **2025** Parquet | 4,62 MB | 4,17 MB |
+| **2025** UNII | 82,86% | 82,72% |
+| **2004** `report_drug` | 36.324 | 43.624 |
+| **2004** `report_reaction` | 39.435 | 42.408 |
+| **2004** `dim_openfda` | 1.128 | 1.197 |
+| **2004** UNII | 51,88% | 55,4% |
+| **2004** ids repetidos (B-004) | **6** | **3** |
+| Interseção da dimensão (B-006) | 866 de 1.128 · 76,8% | **872 de 1.197 · 72,8%** |
+| União da dimensão (B-006) | 2.513 | **2.442** |
+| Projeção de dimensão no corpus | ~3,7 GB | **~3,9 GB**, medida em bytes de partição em 20/08 |
+| Largura mediana de um relato | 2 | **1** |
+| Corte do percentil 99 | 27 | **22** |
+| Relato mais largo | 96 | **176** |
+| Relatos acima do corte (L-011) | 125 · 1,04% | **127 · 1,06%** |
+| Pares na tabela | 28.540 | **16.436** |
+| Pares lotados | 18.946 · 66,4% | **11.247 · 68,4%** |
+| Evans mantém | 85% | **87,5%** |
+
+**As conclusões sobrevivem; os números não.** A lotação continua sendo o resultado do M0 e ficou um pouco mais forte — 1,06% dos relatos sustentam 68,4% dos pares, contra 1,04% e 66,4%. A B-006 continua furando a G1. A B-005 continua aberta e o round trip continua fechando em 2025 e recusando 2004.
+
+**O que não sobreviveu é a manchete.** O topo da tabela não é mais micose de unha num adesivo de buprenorfina. É `HYDRALAZINE HYDROCHLORIDE` → vasculite ANCA-positiva, a = 3, b = 0, c = 1, d = 11.996, com lotação 5 — **não lotado**. E essa associação é real e bem documentada na literatura. A seção do relatório se chama "O ranking está aritmeticamente certo e clinicamente absurdo" e o primeiro exemplo dela deixou de ser absurdo. A prosa de `reports/m0.qmd` está desatualizada em número e em tese, e reescrevê-la é decisão editorial, não conserto de pipeline.
 
 ### L-002: Always measure before believing a size number
 
@@ -608,11 +775,17 @@ Os seis pares **não são o mesmo relato duas vezes.** Conferidos contra o zip d
 | Parquet de 2004 é **menor** que o de 2025 | 2,78 MB contra 4,62 MB, mesmos 12.000 relatos | T19, mesma rodada |
 | Fatos por relato | **83 B** em 2004 · 174 B em 2025 | T19, tamanhos por arquivo |
 | Projeção só-fatos do corpus | **1,7 GB .. 3,6 GB** sobre 20.692.690 relatos; 23% do corpus é anterior a 2015 | T19, as duas densidades × manifesto |
-| `dim_openfda` como fatia da saída | **63%** em 2004 (1,74 MB, 1.128 blocos) · 55% em 2025 | T19, mesma rodada |
+| `dim_openfda` como fatia da saída | **63%** em 2004 (1,74 MB, 1.128 blocos) · 55% em 2025 — **export de 10/08; contra o de 17/08 são 64% e 59%**, ver a linha da remedição de 20/08 | T19, mesma rodada |
 | Linhas em 2004 | drug **36.324** · reaction **39.435** · duplicate **0** | T19, `metrics.json` |
-| **`safetyreportid` repetidos em 2004** | **6 de 12.000** (11.994 distintos), e os pares **não são idênticos** | T19, Parquet e zip da fonte (L-013, B-004) |
+| **`safetyreportid` repetidos em 2004** | **3 de 12.000** (11.997 distintos). Os três pares diferem em `transmissiondate`; dois não diferem em mais nada. Eram 6 no export de 10/08 | zip da fonte, export de 17/08 (AD-025) |
+| **`(safetyreportid, transmissiondate)` repetidos** | **0 em 24.000**, nas duas partições, e `transmissiondate` nunca é nulo | zip da fonte, export de 17/08 (AD-025) |
 | Round trip em 2004 | **12 recusados** por id ambíguo · 11.988 idênticos **só após remover nulls dos dois lados** | Revisão do PR da T19 (B-004, B-005) |
-| **Nulls explícitos em 2004** | **12.000 de 12.000 relatos** — `receiver` em todos, `patient.drug: null` em 1.375 | Revisão do PR da T19, caminhando todo valor (B-005) |
+| **Nulls explícitos em 2004** | **12.000 de 12.000 relatos**, em **cinco caminhos**: `receiver` 12.000 · `primarysource` 3.150 · `drug[].drugtreatmentdurationunit` 1.560 · `patientdeath.patientdeathdate` e `...dateformat` 1.027 cada. Zero em 2025 | Remedição de 20/08, varredura recursiva das duas partições (B-005) |
+| **Só um caminho mistura ausente com null** | `drug[].drugtreatmentdurationunit`: ausente 40.780 · null 1.560 · valor 1.284 | Remedição de 20/08, mesma varredura |
+| **`openfda: {}` vazio** | **502** em 2004 · **476** em 2025. Arrays vazios continuam em zero | Remedição de 20/08, mesma varredura |
+| **`dim_openfda` em bytes** | **64%** da partição de 2004 (1,91 de 3,00 MB) · **59%** da de 2025 (2,46 de 4,17 MB) · projeção **~3,9 GB** | Remedição de 20/08, tamanhos em disco (B-006) |
+| **União da dimensão nas duas partições** | **2.442** contra soma ingênua de 3.314 | Remedição de 20/08, chaves calculadas do zip |
+| **Custo de um `set` de chaves de 16 hex** | 91 MB por milhão · 419 MB por 5 milhões, contra o teto de 500 MB | Remedição de 20/08, `sys.getsizeof` |
 | Colunas 2004 ↔ 2025 | `report` 24↔31 · `report_drug` 16↔29 · `report_reaction` 3↔5 · `report_duplicate` 2↔4 | T19, diff dos dois schemas versionados |
 | `activesubstance` em 2004 | **ausente** — o PROJECT a nomeia como entrada da resolução de entidades de M2 | T19, mesmo diff |
 | Cobertura em 2004 | UNII **51,9%** (contra 82,9%) · `drugstartdate` **32,8%** (contra 22,5%) · `companynumb` 89,6% | T19, `metrics.json` |

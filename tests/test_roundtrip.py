@@ -1,4 +1,5 @@
 import json
+import os
 from pathlib import Path
 
 import pytest
@@ -10,16 +11,40 @@ from hindsight.roundtrip import (
     UnknownReport,
     reconstruct,
 )
-from hindsight.schema import infer
+from hindsight.schema import SCHEMA_DIR, infer
 from hindsight.stream import iter_reports
-from hindsight.write import write_partition
+from hindsight.write import PARQUET_DIR, partition_dir, write_partition
 
 
 FIXTURE = Path(__file__).parent / "fixtures" / "sample_100.json"
 
 
-PARTITION_ZIP = Path("data/raw/2025q1-0001-of-0028.zip")
-PARTITION_PARQUET = Path("data/parquet/year=2025/quarter=1/part=0001-of-0028")
+RAW_DIR = Path("data/raw")
+
+
+def artifacts_of(partition_id: str) -> tuple[Path, Path, Path]:
+    stem = partition_id.replace("/", "-")
+
+    return (
+        RAW_DIR / f"{stem}.zip",
+        PARQUET_DIR / partition_dir(partition_id),
+        SCHEMA_DIR / f"{stem}.json",
+    )
+
+
+def requested_partitions() -> list[str]:
+    return [p.strip() for p in os.environ.get("PARTITION", "").split(",") if p.strip()]
+
+
+def ingested_partitions() -> list[str]:
+    return sorted(
+        json.loads(path.read_text())["partition"]
+        for path in PARQUET_DIR.rglob("metrics.json")
+    )
+
+
+def partitions_under_test() -> list[str]:
+    return requested_partitions() or ingested_partitions()
 
 
 def canonical(value: object) -> str:
@@ -86,20 +111,23 @@ def tables_in_memory(reports: list[dict]) -> Tables:
     dimension = OpenfdaDimension()
     rows: dict[str, list[dict]] = {table: [] for table in TABLES}
 
-    for report in reports:
-        for table, produced in split(report, dimension).by_table().items():
+    for ordinal, report in enumerate(reports, start=1):
+        for table, produced in split(report, dimension, ordinal).by_table().items():
             rows[table] += produced
 
     return Tables.from_rows(rows)
 
 
 def assert_round_trips(reports: list[dict], tables: Tables) -> int:
-    for source in reports:
-        report_id = source["safetyreportid"]
-        found = differences(source, reconstruct(tables, report_id))
+    for ordinal, source in enumerate(reports, start=1):
+        found = differences(source, reconstruct(tables, ordinal))
 
-        assert not found, "safetyreportid {}: {} field(s) differ\n  {}".format(
-            report_id, len(found), "\n  ".join(found[:20])
+        assert not found, "safetyreportid {} ({} {}): {} field(s) differ\n  {}".format(
+            source["safetyreportid"],
+            "ordinal",
+            ordinal,
+            len(found),
+            "\n  ".join(found[:20]),
         )
 
     return len(reports)
@@ -163,14 +191,14 @@ def test_drug_order_survives(sample):
     tables = tables_in_memory(sample)
     checked = 0
 
-    for source in sample:
+    for ordinal, source in enumerate(sample, start=1):
         drugs = (source.get("patient") or {}).get("drug") or []
 
         if len(drugs) < 2:
             continue
 
         checked += 1
-        rebuilt = reconstruct(tables, source["safetyreportid"])
+        rebuilt = reconstruct(tables, ordinal)
 
         assert [canonical(d) for d in rebuilt["patient"]["drug"]] == [
             canonical(d) for d in drugs
@@ -183,13 +211,13 @@ def test_an_empty_openfda_comes_back_as_an_empty_object(sample):
     tables = tables_in_memory(sample)
     seen = 0
 
-    for source in sample:
+    for ordinal, source in enumerate(sample, start=1):
         for position, drug in enumerate((source.get("patient") or {}).get("drug") or []):
             if drug.get("openfda") != {}:
                 continue
 
             seen += 1
-            rebuilt = reconstruct(tables, source["safetyreportid"])
+            rebuilt = reconstruct(tables, ordinal)
 
             assert rebuilt["patient"]["drug"][position]["openfda"] == {}
 
@@ -200,13 +228,13 @@ def test_the_two_duplicate_shapes_come_back_as_they_arrived(sample):
     tables = tables_in_memory(sample)
     objects = arrays = 0
 
-    for source in sample:
+    for ordinal, source in enumerate(sample, start=1):
         original = source.get("reportduplicate")
 
         if original is None:
             continue
 
-        rebuilt = reconstruct(tables, source["safetyreportid"])["reportduplicate"]
+        rebuilt = reconstruct(tables, ordinal)["reportduplicate"]
 
         assert type(rebuilt) is type(original)
         assert canonical(rebuilt) == canonical(original)
@@ -224,10 +252,13 @@ def test_the_fixture_rebuilds_from_parquet(sample, tmp_path):
 
 
 def test_collapsing_empty_openfda_into_absent_is_caught(sample):
-    source = next(
-        r
-        for r in sample
-        if any(d.get("openfda") == {} for d in (r.get("patient") or {}).get("drug") or [])
+    ordinal, source = next(
+        (position, report)
+        for position, report in enumerate(sample, start=1)
+        if any(
+            d.get("openfda") == {}
+            for d in (report.get("patient") or {}).get("drug") or []
+        )
     )
     tables = tables_in_memory([source])
 
@@ -244,25 +275,25 @@ def test_collapsing_empty_openfda_into_absent_is_caught(sample):
     assert empty, (
         "the fixture's `openfda: {}` never reached dim_openfda. If "
         "`OpenfdaDimension.add` is testing the block for truthiness instead of "
-        "`is not None`, that IS the L-005 bug and this is the test saying só."
+        "`is not None`, that IS the L-005 bug and this is the test saying so."
     )
     empty_key = empty[0]
 
-    for row in tables.drugs[source["safetyreportid"]]:
+    for row in tables.drugs[ordinal]:
         if row.get("openfda_key") == empty_key:
             row["openfda_key"] = None
 
     del tables.openfda[empty_key]
 
-    found = differences(source, reconstruct(tables, source["safetyreportid"]))
+    found = differences(source, reconstruct(tables, ordinal))
 
     assert found, "the falsy-openfda bug went undetected — this test is the reason"
     assert any("openfda" in difference for difference in found), found[:5]
 
 
-def test_an_unknown_report_id_says_so(sample):
-    with pytest.raises(UnknownReport, match="nope"):
-        reconstruct(tables_in_memory(sample), "nope")
+def test_an_unknown_ordinal_says_so(sample):
+    with pytest.raises(UnknownReport, match="999"):
+        reconstruct(tables_in_memory(sample), 999)
 
 
 def test_a_gap_in_seq_is_not_quietly_shortened(sample):
@@ -270,23 +301,19 @@ def test_a_gap_in_seq_is_not_quietly_shortened(sample):
         r for r in sample if len((r.get("patient") or {}).get("drug") or []) >= 3
     )
     tables = tables_in_memory([source])
-    report_id = source["safetyreportid"]
-    tables.drugs[report_id].pop(1)
+    tables.drugs[1].pop(1)
 
     with pytest.raises(BrokenTables, match="seq"):
-        reconstruct(tables, report_id)
+        reconstruct(tables, 1)
 
 
 def test_a_duplicate_that_is_both_shapes_at_once_raises(sample):
-    source = next(
-        r for r in sample if isinstance(r.get("reportduplicate"), list)
-    )
+    source = next(r for r in sample if isinstance(r.get("reportduplicate"), list))
     tables = tables_in_memory([source])
-    report_id = source["safetyreportid"]
-    tables.duplicates[report_id][0]["seq"] = None
+    tables.duplicates[1][0]["seq"] = None
 
     with pytest.raises(BrokenTables, match="null"):
-        reconstruct(tables, report_id)
+        reconstruct(tables, 1)
 
 
 def test_a_drug_pointing_at_a_missing_block_raises(sample):
@@ -299,26 +326,38 @@ def test_a_drug_pointing_at_a_missing_block_raises(sample):
     tables.openfda.clear()
 
     with pytest.raises(BrokenTables, match="openfda_key"):
-        reconstruct(tables, source["safetyreportid"])
+        reconstruct(tables, 1)
 
 
 @pytest.mark.slow
-def test_the_whole_partition_rebuilds_from_parquet():
-    if not (PARTITION_ZIP.exists() and (PARTITION_PARQUET / "report.parquet").exists()):
-        pytest.skip(f"needs {PARTITION_ZIP} and a completed ingest into {PARTITION_PARQUET}")
+@pytest.mark.parametrize("partition_id", partitions_under_test())
+def test_the_whole_partition_rebuilds_from_parquet(partition_id):
+    archive, parquet, schema_path = artifacts_of(partition_id)
 
-    tables = Tables.load(PARTITION_PARQUET)
+    missing = [
+        path
+        for path in (archive, parquet / "report.parquet", schema_path)
+        if not path.exists()
+    ]
+    assert not missing, (
+        f"{partition_id}: falta {', '.join(str(path) for path in missing)}. "
+        f"Rode `make ingest PARTITION={partition_id}` antes."
+    )
+
+    declared = json.loads(schema_path.read_text())["source"]["records"]
+
+    tables = Tables.load(parquet)
     compared = mismatched = 0
     first_failure = ""
 
-    for source in iter_reports(PARTITION_ZIP):
+    for ordinal, source in enumerate(iter_reports(archive), start=1):
         compared += 1
         assert not explicit_nulls(source), (
-            f"report {source['safetyreportid']} carries an explicit null — the "
-            f"round-trip comparison's meaning changes here (L-008)"
+            f"{partition_id}: o relato {source['safetyreportid']} carrega um null "
+            f"explicito — o sentido da comparacao do round trip muda aqui (L-008)"
         )
 
-        found = differences(source, reconstruct(tables, source["safetyreportid"]))
+        found = differences(source, reconstruct(tables, ordinal))
 
         if found:
             mismatched += 1
@@ -326,40 +365,50 @@ def test_the_whole_partition_rebuilds_from_parquet():
                 f"safetyreportid {source['safetyreportid']}: {found[:10]}"
             )
 
-    print(f"\n{compared - mismatched:,}/{compared:,} byte-identical")
+    print(f"\n{partition_id}: {compared - mismatched:,}/{compared:,} byte-identical")
 
-    assert mismatched == 0, f"{mismatched:,} of {compared:,} differ. First: {first_failure}"
-    assert compared == 12000
+    assert mismatched == 0, (
+        f"{partition_id}: {mismatched:,} de {compared:,} diferem. "
+        f"Primeiro: {first_failure}"
+    )
+    assert compared == declared, (
+        f"{partition_id}: li {compared:,} relatos do zip, "
+        f"e o manifesto fixado declara {declared:,}"
+    )
 
 
-def tables_with_report_ids(*identifiers: str) -> Tables:
+def tables_with_reports(*identifiers: str) -> Tables:
     rows = {table: [] for table in TABLES}
-    rows["report"] = [{"safetyreportid": i} for i in identifiers]
+    rows["report"] = [
+        {"safetyreportid": identifier, "ordinal": position}
+        for position, identifier in enumerate(identifiers, start=1)
+    ]
 
     return Tables.from_rows(rows)
 
 
-def test_a_repeated_report_id_is_refused_by_name():
-    tables = tables_with_report_ids("1", "1")
+def test_two_reports_under_one_safetyreportid_are_two_reports():
+    tables = tables_with_reports("1", "1")
 
-    with pytest.raises(BrokenTables, match="safetyreportid"):
-        reconstruct(tables, "1")
-
-
-def test_refusing_one_report_does_not_refuse_the_partition():
-    tables = tables_with_report_ids("1", "1", "2")
-
-    assert tables.ambiguous == frozenset({"1"})
-    assert tables.report_ids == ["2"]
-    assert reconstruct(tables, "2") == {"safetyreportid": "2"}
+    assert tables.ordinals == [1, 2]
+    assert reconstruct(tables, 1) == {"safetyreportid": "1"}
+    assert reconstruct(tables, 2) == {"safetyreportid": "1"}
 
 
-def test_three_rows_under_one_id_are_still_one_refusal():
-    tables = tables_with_report_ids("1", "1", "1")
-
-    assert tables.ambiguous == frozenset({"1"})
-    assert tables.report_ids == []
+def test_three_rows_under_one_id_are_still_three_reports():
+    assert tables_with_reports("1", "1", "1").ordinals == [1, 2, 3]
 
 
 def test_distinct_report_ids_still_load():
-    assert tables_with_report_ids("1", "2").report_ids == ["1", "2"]
+    assert tables_with_reports("1", "2").ordinals == [1, 2]
+
+
+def test_a_repeated_ordinal_is_the_writer_breaking_its_contract():
+    rows = {table: [] for table in TABLES}
+    rows["report"] = [
+        {"safetyreportid": "1", "ordinal": 7},
+        {"safetyreportid": "2", "ordinal": 7},
+    ]
+
+    with pytest.raises(BrokenTables, match="ordinal"):
+        Tables.from_rows(rows)

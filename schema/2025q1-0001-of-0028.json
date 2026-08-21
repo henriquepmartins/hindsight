@@ -1,7 +1,7 @@
 {
   "source": {
     "partition": "2025q1/0001-of-0028",
-    "export_date": "2026-08-10",
+    "export_date": "2026-08-17",
     "records": 12000
   },
   "tables": {
@@ -11,6 +11,7 @@
       "duplicate": "string",
       "fulfillexpeditecriteria": "string",
       "occurcountry": "string",
+      "ordinal": "int64",
       "primarysource": {
         "literaturereference": "string",
         "qualification": "string",
@@ -85,10 +86,12 @@
       "drugtreatmentdurationunit": "string",
       "medicinalproduct": "string",
       "openfda_key": "string",
+      "ordinal": "int64",
       "safetyreportid": "string",
       "seq": "int64"
     },
     "report_reaction": {
+      "ordinal": "int64",
       "reactionmeddrapt": "string",
       "reactionmeddraversionpt": "string",
       "reactionoutcome": "string",
@@ -98,6 +101,7 @@
     "report_duplicate": {
       "duplicatenumb": "string",
       "duplicatesource": "string",
+      "ordinal": "int64",
       "safetyreportid": "string",
       "seq": "int64"
     },

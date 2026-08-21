@@ -13,6 +13,7 @@ PATIENT_PREFIX = "pt_"
 OPENFDA = "openfda"
 OPENFDA_KEY = "openfda_key"
 REPORT_ID = "safetyreportid"
+ORDINAL = "ordinal"
 SEQ = "seq"
 DRUG = "drug"
 REACTION = "reaction"
@@ -29,10 +30,10 @@ TABLES = (REPORT_TABLE, DRUG_TABLE, REACTION_TABLE, DUPLICATE_TABLE, OPENFDA_TAB
 
 
 PIPELINE_COLUMNS = {
-    REPORT_TABLE: (),
-    DRUG_TABLE: (REPORT_ID, SEQ, OPENFDA_KEY),
-    REACTION_TABLE: (REPORT_ID, SEQ),
-    DUPLICATE_TABLE: (REPORT_ID, SEQ),
+    REPORT_TABLE: (ORDINAL,),
+    DRUG_TABLE: (REPORT_ID, ORDINAL, SEQ, OPENFDA_KEY),
+    REACTION_TABLE: (REPORT_ID, ORDINAL, SEQ),
+    DUPLICATE_TABLE: (REPORT_ID, ORDINAL, SEQ),
     OPENFDA_TABLE: (OPENFDA_KEY,),
 }
 
@@ -131,9 +132,10 @@ def _report_id(report: dict) -> str:
 
     if report_id is None:
         raise UnexpectedReportShape(
-            f"Chegou um relatório sem {REPORT_ID!r}. E a única chave de volta para "
-            f"suas linhas de medicamento e reação, que ficariam órfãs. "
-            f"Os campos do relatório eram {sorted(report)}."
+            f"Chegou um relatório sem {REPORT_ID!r}. Ele é o identificador "
+            f"público do relato — o round trip o reemite e metrics.json conta "
+            f"os repetidos sobre ele. Os campos do relatório eram "
+            f"{sorted(report)}."
         )
 
     return report_id
@@ -187,12 +189,22 @@ def _duplicates(report: dict, report_id: str) -> Iterator[tuple[int | None, dict
     yield from _entries(report, DUPLICATE, report_id)
 
 
-def split(report: dict, dimension: OpenfdaDimension) -> RowSet:
+def split(report: dict, dimension: OpenfdaDimension, ordinal: int) -> RowSet:
     report_id = _report_id(report)
     patient = _patient(report, report_id)
 
+    if ORDINAL in report:
+        raise UnexpectedReportShape(
+            f"{REPORT_TABLE}: {ORDINAL!r} é ao mesmo tempo a posição que este "
+            f"módulo escreve e um campo da fonte. Um dos dois valores se "
+            f"perderia."
+        )
+
     report_row = _row(
-        {name: value for name, value in report.items() if name not in UNWRAPPED},
+        {
+            ORDINAL: ordinal,
+            **{name: value for name, value in report.items() if name not in UNWRAPPED},
+        },
         {
             PATIENT_PREFIX + name: value
             for name, value in patient.items()
@@ -208,7 +220,7 @@ def split(report: dict, dimension: OpenfdaDimension) -> RowSet:
         block_key, block = dimension.add(drug.get(OPENFDA))
         drugs.append(
             _row(
-                {REPORT_ID: report_id, SEQ: seq, OPENFDA_KEY: block_key},
+                {REPORT_ID: report_id, ORDINAL: ordinal, SEQ: seq, OPENFDA_KEY: block_key},
                 {name: value for name, value in drug.items() if name != OPENFDA},
                 DRUG_TABLE,
             )
@@ -218,12 +230,12 @@ def split(report: dict, dimension: OpenfdaDimension) -> RowSet:
             blocks.append(_row({OPENFDA_KEY: block_key}, block, OPENFDA_TABLE))
 
     reactions = [
-        _row({REPORT_ID: report_id, SEQ: seq}, reaction, REACTION_TABLE)
+        _row({REPORT_ID: report_id, ORDINAL: ordinal, SEQ: seq}, reaction, REACTION_TABLE)
         for seq, reaction in _entries(patient, REACTION, report_id)
     ]
 
     duplicates = [
-        _row({REPORT_ID: report_id, SEQ: seq}, entry, DUPLICATE_TABLE)
+        _row({REPORT_ID: report_id, ORDINAL: ordinal, SEQ: seq}, entry, DUPLICATE_TABLE)
         for seq, entry in _duplicates(report, report_id)
     ]
 
