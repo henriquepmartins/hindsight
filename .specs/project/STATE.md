@@ -1,6 +1,6 @@
 # State
 
-**Last Updated:** 2026-08-18
+**Last Updated:** 2026-08-21
 **Current Work:** M0 — Walking Skeleton. T1–T12 done: repo initialized, dependencies pinned, Makefile skeleton, partition resolver, pinned resumable downloader, streaming report iterator, openfda dimension writer, record splitter, schema inference + Parquet sink, round-trip reconstructor, round-trip test, MedDRA exclusion list. **AD-013 is decided** — five tables, and a null `seq` on `report_duplicate` means the source carried a bare object. **The round trip closes and is now defended: 12,000 / 12,000 byte-identical, plus 13 tests over a committed 100-report fixture that CI can run without the partition.** Phase 3, the core of M0, is finished, and T12 curated 187 exclusion terms that clear the top of the ranking — what surfaces underneath is infliximab → sepsis, a real anti-TNF warning. **T12 also found the trap T13 walks into: one report carries 2,321 drug rows, and the naive join inflates the pair counts 2.2× (L-009).** T13 is written: PRR and χ² over a 2×2 of **distinct reports**, Evans as the screening criterion (AD-014), 0.13 s over the partition. **Its eye-check failed, and the failure is the milestone's finding — the top of the table is nine near-duplicate reports of one Canadian patient on ~90 drugs, and neither `drugcharacterization` nor Evans removes it (L-010).** T13 is committed. **T14 is done and it enlarged the finding (L-011): the nine duplicate reports are not a cluster to route around — 125 reports of 12,000, 1.04%, supply 66.4% of the whole pair table.** Three notebooks record the analyses that actually ran, `reports/m0.qmd` publishes that in 370 words and one chart, and `hindsight analyze --csv` writes the committed table the page reads. **T15 is done too** — `_quarto.yml` + `index.qmd`, light theme with no toggle, per-milestone navbar, the disclaimer in every footer, and `make site` regenerating the CSV before rendering so a stale page takes deliberate effort. **T16 is done** — CI green in 30 s, and its first run immediately caught the one dependency rule this milestone had just written down being broken (L-012). **T17 está commitado** (`ci: publish site to GitHub Pages`); falta confirmar a URL viva.
 
 **Uma revisão de arquitetura em 14/08 fechou o M1 no papel antes de T19 fechar o M0** — AD-017 a AD-022. Quatro dos seis achados eram a mesma coisa: uma promessa do PROJECT/ROADMAP que o M0 resolveu de um jeito deliberadamente estreito e correto, e que nenhum milestone assumia de volta na largura prometida. Dois já foram implementados e verificados: **`repeated_report_ids` no `metrics.json` com o round trip recusando o id ambíguo** (AD-020, medido 0 de 12.000) e a **guarda de procedência da página no CI** (AD-022). O `make test` deixou de ser um stub que saía 1, então `make all` roda de ponta a ponta pela primeira vez. Suíte em **202 testes, 1,6 s**.
@@ -18,6 +18,8 @@
 **A T1 fechou em 18/08 — AD-025 escrita, B-004 resolvido.** A junção das cinco tabelas passa a ser `ordinal`, posicional dentro da partição, e `safetyreportid` vira atributo. A remedição derrubou a caracterização que L-013 tinha dado aos pares repetidos, e de quebra encontrou o 2×2 da PRR contando `DISTINCT safetyreportid` — 11.997 e não 12.000 em 2004. **T2** implementa.
 
 **Próxima ação:** decidir se `reports/m0.qmd` é reescrito contra o export novo. O topo da tabela deixou de ser absurdo — é `HYDRALAZINE` → vasculite ANCA-positiva, uma associação real — e a seção que se chama "aritmeticamente certo e clinicamente absurdo" perdeu o exemplo. Isso continua em aberto, e é editorial.
+
+**A T2 fechou em 21/08** — `ordinal` nas cinco tabelas, PR #9. Dois desvios do Verify registrados na tasks.md: `repetidos` deu 3 e não 6 (o número do spec era do export de 10/08), e a suíte segue vermelha em 2004 na precondição de null explícito, que é B-005/B-007 e era esperado. **A T3 fechou no mesmo dia** — AD-026 decide B-005 por marcadores de forma da fonte; `_without_nulls` deixa de existir na T4, que é a próxima task de implementação e quem devolve o `make all` ao verde.
 
 ---
 
@@ -289,6 +291,34 @@ Isso não são dois documentos sem relação. É **um caso e seu follow-up** —
 
 ---
 
+### AD-026: marcadores de forma da fonte, e a remoção de nulls deixa de existir (2026-08-21)
+
+> Numerada 026 porque é a que o design da M1 reservava para a T3. Decidida contra os números da remedição de 20/08/2026, que já são do export de 17/08 — a revisão de arquitetura exigiu remedir antes de escrever o AD, e a medição está feita.
+
+**Decisão:** cada uma das quatro tabelas de fato ganha uma coluna `source_shape` (`list<string>`) — a lista dos campos daquela linha que chegaram **explicitamente nulos** ou como **array vazio**. O marcador guarda o caminho pontilhado dentro do objeto que a linha representa: `receiver` no `report`, `drugtreatmentdurationunit` na linha de medicamento, `pt_patientdeath.patientdeathdate` para o null dentro do struct — sem ele o marcador não alcança 2 dos 5 caminhos de null de 2004. A reconstrução lê a coluna e reemite `null`, `[]`, ou omite a chave, conforme o marcador diga. Com isso `_without_nulls` **deixa de existir** dos dois lados da comparação — não passa a ser justificado melhor, sai do código — e a comparação do round trip compara os documentos crus.
+
+**Razão:** L-008 provou que remover nulls dos dois lados só é um inverso se a fonte nunca carregar null explícito, e disse em letras que a medição de 2025 não transfere. Não transferiu: em `2004q1/0001-of-0005` são **12.000 de 12.000 relatos** com pelo menos um null explícito, em cinco caminhos — `receiver` 12.000 · `primarysource` 3.150 · `drug[].drugtreatmentdurationunit` 1.560 · `patientdeath.patientdeathdate` e `...dateformat` 1.027 cada. O round trip da era antiga hoje não prova nada: os 11.988 "idênticos" só concordam depois que a remoção apaga a diferença dos dois lados, que é exatamente a comparação autocertificante que L-008 mandou desconfiar. A informação que falta já chega ao `split` — o parser materializa `"receiver": null` como chave presente com valor `None`, e é a escrita que a descarta, porque Parquet não tem ausência. O marcador preserva o que o parser viu em vez de deixar a comparação inventar.
+
+Só um dos cinco caminhos mistura ausente com null (`drugtreatmentdurationunit`: ausente 40.780 · null 1.560 · valor 1.284). Nos outros quatro o null do Parquet já é inequívoco. O mecanismo cobre os cinco do mesmo jeito porque distinguir por caminho seria uma regra medida numa partição e aplicada a 2004–2025 — o erro de L-006 outra vez.
+
+**O mesmo mecanismo fecha o todo de L-007.** Array vazio indistinguível de campo ausente era um buraco sem instância conhecida, com 1.767 partições pela frente para produzir uma. Zero child rows não dizia se a fonte tinha `[]` ou não tinha o campo; agora diz, porque o marcador registra o `[]`. Continua sem ocorrência medida nas duas partições — o que fecha é o mecanismo, não um número.
+
+**O que o marcador não cobre, de propósito:** `openfda: {}` (502 vezes em 2004, 476 em 2025) já é distinto de `openfda` ausente pela chave da dimensão — chave nula é ausente, chave que hasheia `{}` é o bloco vazio, e é isso que consertou o L-005. Nenhum marcador para objeto vazio; duplicar a distinção em dois mecanismos seria duas formas de mentir em vez de uma forma de dizer.
+
+**Trade-off:** uma coluna nova em quatro tabelas, escrita por `split` iterando o registro — nenhum nome de campo hardcoded, que é o não-negociável do projeto. Em 2004 o valor típico é `["receiver"]` e dicionariza para quase nada; o Parquet já cresceu 2,78 → 3,14 MB com o `ordinal` da AD-025 e o marcador pesa menos que ele. Contra isso: a largura das tabelas entra na conta de colisão de nome (`source_shape` entra nos nomes reservados de `_pin_pipeline_columns`, ao lado de `ordinal`) e a reconstrução ganha um ramo por caso — `null`, `[]`, ausente — que só existe para servir a prova. É preço da afirmação central do projeto, não de uma feature.
+
+**Alternativas rejeitadas, com o custo de cada uma:**
+
+- *Uma máscara por campo anulável, nas cinco tabelas.* Exato, e caro de um jeito que não é bytes: as quatro tabelas de fato somam **49 colunas em 2004 e 73 em 2025** (contadas nos schemas congelados), então são dezenas de máscaras booleanas quase todas falsas, presentes em todo schema diff, toda comparação entre eras e toda query que lista colunas. E a lista de "campos que merecem máscara" teria de vir de algum lugar — derivá-la à mão é a keep-list que L-005 baniu, e derivá-la por medição a torna mais uma constante de export.
+- *Declarar o null explícito como normalização anunciada.* Barato hoje, e o custo é a afirmação: "byte-identical" passaria a significar "idêntico depois de descartar nulls explícitos" — o que, em 2004, é descartar um valor real em 12.000 de 12.000 relatos, incluindo `primarysource`, que carrega a qualificação do reportante e pesa sinal na M3. É também a "identidade após normalização não declarada" que a AD-013 recusou para `reportduplicate`; aceitá-la aqui seria recusar a forma do erro num caso e comprá-la no outro.
+- *Escopo declarado: o round trip prova só as eras sem null explícito.* Zero código, e o custo é o portão: a T6 exige as duas eras verdes antes da Fase 3, então a colheita não começa — e, começando, publicaria uma prova cujo alcance medido até hoje é uma partição de 2025. É a alternativa que a AD-025 recusou na mesma posição ("publica um buraco exatamente onde a fonte é mais suja"), com o agravante de que aqui o buraco é a era inteira.
+
+**Impacto:** a T4 implementa — `split` grava o marcador, `reconstruct` reemite conforme ele, `_without_nulls` sai dos dois lados, `test_the_source_carries_no_explicit_nulls` é **removido** (se ele ainda fizer falta, o AC4 de P1 §"Ausente, nulo e vazio" não foi cumprido), e um teste novo defende cada um dos três casos. As duas partições são reingeridas e o Verify da T4 espera 12.000 linhas com `source_shape` não vazio em 2004 — os mesmos 12.000 relatos que a remedição mediu, agora reconstruídos em vez de recusados. Fecha B-007 junto: `make all` volta ao verde quando a comparação crua passar na era antiga.
+
+**Fecha B-005.**
+
+---
+
 ### AD-027: pin obsoleto é recusado por nome, e mover de export é um ato explícito (2026-08-18) — IMPLEMENTADO
 
 > Numerada 027 de propósito: 023 a 026 estão reservadas para as quatro tasks de decisão da M1 (`.specs/features/m1-corpus-completo/design.md`), que ainda não foram escritas aqui.
@@ -331,7 +361,9 @@ Isso não são dois documentos sem relação. É **um caso e seu follow-up** —
 
 **Consequence for M4 scope:** SrLC starting in 2016 is not a real constraint — FAERS runs from 2004, giving a 12-year lookback before the first evaluable event. That is close to the ideal shape for a lead-time study.
 
-### B-005: a normalização que faz o round trip passar não é um inverso na era antiga — ABERTO 2026-08-14
+### ~~B-005: a normalização que faz o round trip passar não é um inverso na era antiga~~ — RESOLVIDO 2026-08-21
+
+**Resolução:** fechado pela **AD-026**. As quatro tabelas de fato ganham `source_shape`, a lista dos campos que chegaram explicitamente nulos ou como array vazio, com caminho pontilhado dentro da linha. A reconstrução reemite `null` e `[]` onde o marcador diga, `_without_nulls` deixa de existir dos dois lados e a comparação vira crua. O mesmo mecanismo fecha o todo de L-007 — array vazio indistinguível de ausente passa a ser registrado, mesmo sem instância conhecida. A **T4** da M1 implementa; até lá o round trip continua recusando 2004 na precondição, que é o estado vermelho declarado em **B-007**.
 
 **Descoberto:** revisão do PR da T19, ao perguntar quanto da era antiga a recusa por id estava jogando fora. A resposta expôs um problema maior que o id.
 
