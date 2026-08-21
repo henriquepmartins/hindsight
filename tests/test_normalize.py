@@ -121,10 +121,11 @@ def test_the_same_block_under_a_shared_key_is_not_a_collision(monkeypatch, dimen
 def test_every_top_level_field_travels_except_patient(dimension):
     source = report(occurcountry="US", patient={"patientsex": "1"})
 
-    rows = split(source, dimension)
+    rows = split(source, dimension, 1)
 
     assert rows.report == {
         "safetyreportid": "1",
+        "ordinal": 1,
         "receiptdate": "20250101",
         "occurcountry": "US",
         "pt_patientsex": "1",
@@ -134,7 +135,7 @@ def test_every_top_level_field_travels_except_patient(dimension):
 def test_a_field_nobody_has_seen_before_still_travels(dimension):
     source = report(fieldinventedin2031="x", patient={"pt_era_field": "y"})
 
-    rows = split(source, dimension)
+    rows = split(source, dimension, 1)
 
     assert rows.report["fieldinventedin2031"] == "x"
     assert rows.report["pt_pt_era_field"] == "y"
@@ -143,7 +144,7 @@ def test_a_field_nobody_has_seen_before_still_travels(dimension):
 def test_a_nested_patient_object_stays_an_object(dimension):
     source = report(patient={"summary": {"narrativeincludeclinical": "text"}})
 
-    rows = split(source, dimension)
+    rows = split(source, dimension, 1)
 
     assert rows.report["pt_summary"] == {"narrativeincludeclinical": "text"}
 
@@ -151,16 +152,16 @@ def test_a_nested_patient_object_stays_an_object(dimension):
 def test_the_patient_arrays_never_land_in_the_report_row(dimension):
     source = report(patient={"drug": [{"medicinalproduct": "ASPIRIN"}], "reaction": [{}]})
 
-    rows = split(source, dimension)
+    rows = split(source, dimension, 1)
 
     assert "pt_drug" not in rows.report
     assert "pt_reaction" not in rows.report
 
 
 def test_a_report_without_a_patient_still_produces_its_row(dimension):
-    rows = split(report(), dimension)
+    rows = split(report(), dimension, 1)
 
-    assert rows.report == {"safetyreportid": "1", "receiptdate": "20250101"}
+    assert rows.report == {"safetyreportid": "1", "ordinal": 1, "receiptdate": "20250101"}
     assert rows.drugs == []
     assert rows.reactions == []
 
@@ -169,7 +170,7 @@ def test_a_prefixed_patient_field_may_not_overwrite_a_real_top_level_one(dimensi
     source = report(pt_patientsex="top level", patient={"patientsex": "1"})
 
     with pytest.raises(UnexpectedReportShape, match="pt_patientsex"):
-        split(source, dimension)
+        split(source, dimension, 1)
 
 
 def test_one_row_per_drug_keyed_and_ordered(dimension):
@@ -177,18 +178,18 @@ def test_one_row_per_drug_keyed_and_ordered(dimension):
         patient={"drug": [{"medicinalproduct": "ASPIRIN"}, {"medicinalproduct": "ADVIL"}]}
     )
 
-    rows = split(source, dimension)
+    rows = split(source, dimension, 1)
 
     assert rows.drugs == [
-        {"safetyreportid": "1", "seq": 0, "openfda_key": None, "medicinalproduct": "ASPIRIN"},
-        {"safetyreportid": "1", "seq": 1, "openfda_key": None, "medicinalproduct": "ADVIL"},
+        {"safetyreportid": "1", "ordinal": 1, "seq": 0, "openfda_key": None, "medicinalproduct": "ASPIRIN"},
+        {"safetyreportid": "1", "ordinal": 1, "seq": 1, "openfda_key": None, "medicinalproduct": "ADVIL"},
     ]
 
 
 def test_seq_is_the_source_position_not_a_counter_over_kept_rows(dimension):
     source = report(patient={"drug": [{}, {}, {}]})
 
-    rows = split(source, dimension)
+    rows = split(source, dimension, 1)
 
     assert [drug["seq"] for drug in rows.drugs] == [0, 1, 2]
 
@@ -196,7 +197,7 @@ def test_seq_is_the_source_position_not_a_counter_over_kept_rows(dimension):
 def test_the_openfda_block_leaves_the_drug_row_and_becomes_a_key(dimension):
     source = report(patient={"drug": [{"medicinalproduct": "ASPIRIN", "openfda": ASPIRIN}]})
 
-    rows = split(source, dimension)
+    rows = split(source, dimension, 1)
 
     assert "openfda" not in rows.drugs[0]
     assert rows.drugs[0]["openfda_key"] == key(ASPIRIN)
@@ -205,7 +206,7 @@ def test_the_openfda_block_leaves_the_drug_row_and_becomes_a_key(dimension):
 def test_an_absent_block_keys_to_none_and_an_empty_one_does_not(dimension):
     source = report(patient={"drug": [{}, {"openfda": {}}]})
 
-    rows = split(source, dimension)
+    rows = split(source, dimension, 1)
 
     assert rows.drugs[0]["openfda_key"] is None
     assert rows.drugs[1]["openfda_key"] == key({})
@@ -216,7 +217,7 @@ def test_a_block_reaches_the_dimension_once_however_many_drugs_cite_it(dimension
         patient={"drug": [{"openfda": ASPIRIN}, {"openfda": ASPIRIN}, {"openfda": IBUPROFEN}]}
     )
 
-    rows = split(source, dimension)
+    rows = split(source, dimension, 1)
 
     assert rows.openfda == [
         {"openfda_key": key(ASPIRIN)} | ASPIRIN,
@@ -225,9 +226,9 @@ def test_a_block_reaches_the_dimension_once_however_many_drugs_cite_it(dimension
 
 
 def test_a_block_already_seen_in_an_earlier_report_is_not_emitted_again(dimension):
-    split(report(patient={"drug": [{"openfda": ASPIRIN}]}), dimension)
+    split(report(patient={"drug": [{"openfda": ASPIRIN}]}), dimension, 1)
 
-    rows = split(report(safetyreportid="2", patient={"drug": [{"openfda": ASPIRIN}]}), dimension)
+    rows = split(report(safetyreportid="2", patient={"drug": [{"openfda": ASPIRIN}]}), dimension, 1)
 
     assert rows.openfda == []
     assert rows.drugs[0]["openfda_key"] == key(ASPIRIN)
@@ -236,7 +237,7 @@ def test_a_block_already_seen_in_an_earlier_report_is_not_emitted_again(dimensio
 def test_a_report_with_no_drugs_is_not_a_skipped_report(dimension):
     source = report(patient={"patientsex": "1", "reaction": [{"reactionmeddrapt": "Nausea"}]})
 
-    rows = split(source, dimension)
+    rows = split(source, dimension, 1)
 
     assert rows.report["pt_patientsex"] == "1"
     assert rows.drugs == []
@@ -248,22 +249,23 @@ def test_one_row_per_reaction_keyed_and_ordered(dimension):
         patient={"reaction": [{"reactionmeddrapt": "Nausea"}, {"reactionmeddrapt": "Rash"}]}
     )
 
-    rows = split(source, dimension)
+    rows = split(source, dimension, 1)
 
     assert rows.reactions == [
-        {"safetyreportid": "1", "seq": 0, "reactionmeddrapt": "Nausea"},
-        {"safetyreportid": "1", "seq": 1, "reactionmeddrapt": "Rash"},
+        {"safetyreportid": "1", "ordinal": 1, "seq": 0, "reactionmeddrapt": "Nausea"},
+        {"safetyreportid": "1", "ordinal": 1, "seq": 1, "reactionmeddrapt": "Rash"},
     ]
 
 
 def test_one_duplicate_arrives_as_a_bare_object_and_keeps_a_null_seq(dimension):
     source = report(reportduplicate={"duplicatenumb": "D1", "duplicatesource": "X"})
 
-    rows = split(source, dimension)
+    rows = split(source, dimension, 1)
 
     assert rows.duplicates == [
         {
             "safetyreportid": "1",
+            "ordinal": 1,
             "seq": None,
             "duplicatenumb": "D1",
             "duplicatesource": "X",
@@ -274,7 +276,7 @@ def test_one_duplicate_arrives_as_a_bare_object_and_keeps_a_null_seq(dimension):
 def test_several_duplicates_arrive_as_an_array_and_keep_their_positions(dimension):
     source = report(reportduplicate=[{"duplicatenumb": "D1"}, {"duplicatenumb": "D2"}])
 
-    rows = split(source, dimension)
+    rows = split(source, dimension, 1)
 
     assert [(row["seq"], row["duplicatenumb"]) for row in rows.duplicates] == [
         (0, "D1"),
@@ -283,8 +285,8 @@ def test_several_duplicates_arrive_as_an_array_and_keep_their_positions(dimensio
 
 
 def test_an_array_of_one_stays_distinguishable_from_a_bare_object(dimension):
-    boxed = split(report(reportduplicate=[{"duplicatenumb": "D1"}]), dimension)
-    bare = split(report(reportduplicate={"duplicatenumb": "D1"}), dimension)
+    boxed = split(report(reportduplicate=[{"duplicatenumb": "D1"}]), dimension, 1)
+    bare = split(report(reportduplicate={"duplicatenumb": "D1"}), dimension, 1)
 
     assert boxed.duplicates[0]["seq"] == 0
     assert bare.duplicates[0]["seq"] is None
@@ -293,47 +295,60 @@ def test_an_array_of_one_stays_distinguishable_from_a_bare_object(dimension):
 def test_the_duplicate_block_never_lands_in_the_report_row(dimension):
     source = report(reportduplicate={"duplicatenumb": "D1"})
 
-    rows = split(source, dimension)
+    rows = split(source, dimension, 1)
 
     assert "reportduplicate" not in rows.report
 
 
 def test_a_report_with_no_duplicates_produces_no_duplicate_rows(dimension):
-    assert split(report(), dimension).duplicates == []
+    assert split(report(), dimension, 1).duplicates == []
 
 
 def test_a_duplicate_entry_that_is_not_an_object_raises(dimension):
     with pytest.raises(UnexpectedReportShape, match=r"'reportduplicate'\[0\]"):
-        split(report(reportduplicate=["D1"]), dimension)
+        split(report(reportduplicate=["D1"]), dimension, 1)
 
 
 def test_a_duplicate_that_is_neither_object_nor_array_raises(dimension):
     with pytest.raises(UnexpectedReportShape, match="'reportduplicate' deveria ser um array"):
-        split(report(reportduplicate="D1"), dimension)
+        split(report(reportduplicate="D1"), dimension, 1)
 
 
 def test_a_report_without_an_id_raises_rather_than_orphaning_its_rows(dimension):
     with pytest.raises(UnexpectedReportShape, match="safetyreportid"):
-        split({"receiptdate": "20250101"}, dimension)
+        split({"receiptdate": "20250101"}, dimension, 1)
 
 
 def test_a_patient_that_is_not_an_object_raises(dimension):
     with pytest.raises(UnexpectedReportShape, match="'patient' deveria ser um objeto"):
-        split(report(patient="unexpected"), dimension)
+        split(report(patient="unexpected"), dimension, 1)
 
 
 def test_a_drug_array_that_is_not_an_array_raises_rather_than_being_iterated(dimension):
     with pytest.raises(UnexpectedReportShape, match="'drug' deveria ser um array, veio str"):
-        split(report(patient={"drug": "ASPIRIN"}), dimension)
+        split(report(patient={"drug": "ASPIRIN"}), dimension, 1)
 
 
 def test_a_drug_entry_that_is_not_an_object_raises(dimension):
     with pytest.raises(UnexpectedReportShape, match=r"'drug'\[0\] deveria ser um objeto"):
-        split(report(patient={"drug": ["ASPIRIN"]}), dimension)
+        split(report(patient={"drug": ["ASPIRIN"]}), dimension, 1)
 
 
 def test_a_source_field_may_not_overwrite_a_column_the_table_defines(dimension):
     source = report(patient={"drug": [{"seq": "9"}]})
 
     with pytest.raises(UnexpectedReportShape, match="seq"):
-        split(source, dimension)
+        split(source, dimension, 1)
+
+
+def test_a_source_field_named_ordinal_raises_rather_than_being_overwritten(dimension):
+    with pytest.raises(UnexpectedReportShape, match="ordinal"):
+        split(report(ordinal="not mine"), dimension, 1)
+
+
+def test_each_report_in_a_partition_carries_its_own_ordinal(dimension):
+    first = split(report(), dimension, 1)
+    second = split(report(safetyreportid="2"), dimension, 2)
+
+    assert first.report["ordinal"] == 1
+    assert second.report["ordinal"] == 2

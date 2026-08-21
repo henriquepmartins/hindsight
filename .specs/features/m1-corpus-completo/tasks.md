@@ -105,13 +105,13 @@ recusar id ambíguo.
 **Depende de:** T1 · **Requisito:** M1-01
 
 **Pronta quando:**
-- [ ] `normalize.TABLES` declara `ordinal` como coluna que o pipeline escreve, e
+- [x] `normalize.TABLES` declara `ordinal` como coluna que o pipeline escreve, e
       `schema._pin_pipeline_columns` a protege como faz com `safetyreportid`, `seq` e `openfda_key`
-- [ ] Um campo da fonte chamado `ordinal` levanta `UnexpectedReportShape`, não sobrescreve
-- [ ] `Tables._by_id` some; `reconstruct` não tem mais o caminho de recusa por ambiguidade
-- [ ] `metrics.repeated_report_ids` **continua** sendo contado — a chave resolve a reconstrução, não a
+- [x] Um campo da fonte chamado `ordinal` levanta `UnexpectedReportShape`, não sobrescreve
+- [x] `Tables._by_id` some; `reconstruct` não tem mais o caminho de recusa por ambiguidade
+- [x] `metrics.repeated_report_ids` **continua** sendo contado — a chave resolve a reconstrução, não a
       duplicata, que é M2
-- [ ] As duas partições são reingeridas e os schemas versionados regravados
+- [x] As duas partições são reingeridas e os schemas versionados regravados
 
 **Verify:**
 ```bash
@@ -125,6 +125,18 @@ print('repetidos:', m['repeated_report_ids'])"
 ```
 Esperado: suíte verde, round trip **12.000/12.000 em 2004 sem nenhum relatório recusado**, e
 `repetidos: 6` — o número de L-013 preservado, agora como métrica e não como obstáculo.
+
+**Concluída em 21/08/2026.** Dois desvios do Verify, registrados em vez de corrigidos em silêncio.
+Primeiro: `repetidos` deu **3**, não os 6 esperados — o número do spec é do export de 10/08, e o repin
+de 18/08 já tinha remedido 3 contra o de 17/08 (L-015, AD-025). Segundo: a suíte completa segue
+vermelha em 2004, parando na precondição de null explícito (`receiver` nulo nos 12.000), que é a
+B-005/B-007 e é da T4; a frase "sem nenhum relatório recusado" foi demonstrada à parte — 12.000 linhas
+sob 11.997 ids distintos, todas reconstruídas, zero recusas. O Parquet cresceu com a coluna nova:
+2,78 → 3,14 MB em 2004 e 4,17 → 4,31 MB em 2025. Uma adição fora da lista de pronta-quando:
+`Tables.from_rows` levanta `BrokenTables` com `ordinal` repetido, porque remover `_by_id` sem reposição
+deixaria o load sem defesa nenhuma contra descarte silêncio de linha — a forma de falha que AD-020
+existe para recusar. A declaração da coluna ficou em `PIPELINE_COLUMNS`, não em `TABLES`, que é a
+tupla de nomes de tabela; a intenção do item era essa.
 
 **Commit:** `feat(normalize): identifica relato por ordinal dentro da partição`
 

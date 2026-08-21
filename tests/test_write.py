@@ -192,3 +192,23 @@ def test_the_writer_never_drops_a_repeated_id(tmp_path):
     write_partition(iter(reports), infer(iter(reports)), tmp_path / "out")
 
     assert written_report_ids(tmp_path / "out") == ["1", "1", "1"]
+
+
+def written_ordinals(directory: Path) -> list[int]:
+    table = pq.read_table(directory / "report.parquet")
+
+    return table.column("ordinal").to_pylist()
+
+
+def test_the_ordinal_is_the_position_in_the_partition(tmp_path):
+    reports = [report(safetyreportid=str(n)) for n in range(3)]
+    write_partition(iter(reports), infer(iter(reports)), tmp_path / "out")
+
+    assert written_ordinals(tmp_path / "out") == [1, 2, 3]
+
+
+def test_a_repeated_safetyreportid_still_gets_distinct_ordinals(tmp_path):
+    reports = [report(safetyreportid="1"), report(safetyreportid="1")]
+    write_partition(iter(reports), infer(iter(reports)), tmp_path / "out")
+
+    assert written_ordinals(tmp_path / "out") == [1, 2]

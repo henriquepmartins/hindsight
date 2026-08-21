@@ -116,7 +116,7 @@ def write_partition(
         }
 
         for seen, report in enumerate(reports, start=1):
-            for table, rows in split(report, dimension).by_table().items():
+            for table, rows in split(report, dimension, seen).by_table().items():
                 sinks[table].write(rows)
 
             if seen % REPORTS_PER_ROW_GROUP == 0:

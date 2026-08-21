@@ -90,7 +90,7 @@ def test_every_table_gets_a_schema_even_when_no_record_fills_it():
     schemas = infer(iter([report()]))
 
     assert set(schemas.tables) == set(TABLES)
-    assert schemas["report_duplicate"].names == ["safetyreportid", "seq"]
+    assert schemas["report_duplicate"].names == ["ordinal", "safetyreportid", "seq"]
 
 
 def test_an_object_here_and_an_array_there_raises():
@@ -164,6 +164,7 @@ def test_the_file_reads_like_a_record_with_types_where_the_values_were(tmp_path)
     save(path, schemas, source={})
 
     assert json.loads(path.read_text())["tables"]["report"] == {
+        "ordinal": "int64",
         "primarysource": {"qualification": "string"},
         "safetyreportid": "string",
         "tags": ["string"],

@@ -8,6 +8,7 @@
     "report": {
       "companynumb": "string",
       "fulfillexpeditecriteria": "string",
+      "ordinal": "int64",
       "primarysource": {
         "qualification": "string",
         "reportercountry": "string"
@@ -54,15 +55,18 @@
       "drugtreatmentdurationunit": "string",
       "medicinalproduct": "string",
       "openfda_key": "string",
+      "ordinal": "int64",
       "safetyreportid": "string",
       "seq": "int64"
     },
     "report_reaction": {
+      "ordinal": "int64",
       "reactionmeddrapt": "string",
       "safetyreportid": "string",
       "seq": "int64"
     },
     "report_duplicate": {
+      "ordinal": "int64",
       "safetyreportid": "string",
       "seq": "int64"
     },
